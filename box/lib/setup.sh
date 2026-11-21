@@ -44,7 +44,7 @@ apply_setup_conf() {
   [ -r "$SETUP_CONF" ] || return 0
   local k v topic
   # shellcheck source=/dev/null
-  ( . "$SETUP_CONF"; set | grep -E '^(SERVER|SERVER_PORT|SERVER_USER|KINDS|LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|MAINT_SSH_FROM|BOARD_LED|NOTIFY_KIND|SERIAL_TTY)=' ) \
+  ( . "$SETUP_CONF"; set | grep -E '^(SERVER|SERVER_PORT|SERVER_USER|KINDS|LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|MAINT_SSH_FROM|BOARD_LED|NOTIFY_KIND|SERIAL_TTY|NET_ADDRESS|NET_GATEWAY)=' ) \
     > "$RUN_DIR/setup.vars" || true
   [ -r "$CONF" ] || install -m 0644 "$PURSER_LIB/purser.conf.example" "$CONF"
   while IFS='=' read -r k v; do
@@ -75,6 +75,41 @@ apply_setup_conf() {
     fi )
   shred -u "$SETUP_CONF" 2>/dev/null || rm -f "$SETUP_CONF"
   load_config
+  net_apply
+}
+
+# Wired network. NET_ADDRESS empty: DHCP, as the image comes. NET_ADDRESS="192.0.2.15/24" and
+# NET_GATEWAY="192.0.2.1": a fixed address on every Ethernet interface (the server admits the
+# box by address). Written for netplan (Armbian), else systemd-networkd, else NetworkManager.
+net_apply() {
+  local a=${NET_ADDRESS:-} g=${NET_GATEWAY:-} root=${APPLY_ROOT:-} d f
+  [ -n "$a" ] || return 0
+  [[ $a =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || { log "NET_ADDRESS is not an IPv4 address with prefix: $a"; return 1; }
+  [ -z "$g" ] || [[ $g =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { log "NET_GATEWAY is not an IPv4 address: $g"; return 1; }
+  d=$(printf '%s' "$DNS_SERVERS" | sed 's/ \+/, /g')
+  if [ -d "$root/etc/netplan" ]; then
+    for f in "$root"/etc/netplan/*.yaml; do
+      [ -e "$f" ] && [ "${f##*/}" != 20-purser.yaml ] && mv -f "$f" "$f.purser-off"
+    done
+    ( umask 077
+      { printf 'network:\n  version: 2\n  renderer: networkd\n  ethernets:\n    purser-wired:\n      match:\n        name: "e*"\n'
+        printf '      dhcp4: false\n      dhcp6: false\n      addresses: [%s]\n' "$a"
+        [ -n "$g" ] && printf '      routes:\n        - to: default\n          via: %s\n' "$g"
+        printf '      nameservers:\n        addresses: [%s]\n' "$d"; } > "$root/etc/netplan/20-purser.yaml" )
+    [ -z "$root" ] && command -v netplan >/dev/null 2>&1 && { netplan apply || log "netplan apply failed"; }
+  elif [ -d "$root/etc/systemd/network" ] && { [ -n "$root" ] || systemctl -q is-enabled systemd-networkd 2>/dev/null; }; then
+    { printf '[Match]\nName=e*\n\n[Network]\nAddress=%s\n' "$a"
+      [ -n "$g" ] && printf 'Gateway=%s\n' "$g"
+      for f in $DNS_SERVERS; do printf 'DNS=%s\n' "$f"; done; } > "$root/etc/systemd/network/20-purser.network"
+    [ -z "$root" ] && { networkctl reload 2>/dev/null || systemctl restart systemd-networkd; }
+  elif [ -z "$root" ] && command -v nmcli >/dev/null 2>&1; then
+    for f in $(nmcli -t -f NAME,TYPE con show | awk -F: '$2 ~ /ethernet/ { print $1 }'); do
+      nmcli con mod "$f" ipv4.method manual ipv4.addresses "$a" ${g:+ipv4.gateway "$g"} && nmcli con up "$f" >/dev/null || true
+    done
+  else
+    log "no netplan, systemd-networkd or NetworkManager: set the address $a by hand"; return 1
+  fi
+  log "network: fixed address $a${g:+ via $g}"
 }
 
 ensure_ssh_key() {
@@ -222,6 +257,7 @@ disk_adopt() {   # uses the key file moved from the old card
   disk_open || return 1
   if [ ! -d "$GEN_DIR" ] || [ ! -d "$AUDIT/liste" ]; then disk_close || true; say "$(msg E_NOT_PURSER_DISK)" >&2; return 1; fi
   [ -s "$ST_LAST_PUBLISHED" ] || state_rebuild
+  suspect_state_sync
   say "$(msg I_ADOPTED "$(generations 'gen-*' | wc -l)" "$(generations 'uzun-*' | wc -l)" "$(cat "$ST_LAST_PUBLISHED" 2>/dev/null || echo -)")"
   disk_close || true
   setup_mark disk adopted
@@ -361,6 +397,7 @@ cmd_clear() {   # clear <id>
         rm -f "$ST_SUSPECT_FLAG"; kv_set "$ST_MAINT" paused_since ""
         cp "$ST_LAST_PUBLISHED" "$ST_LAST_SOUND" 2>/dev/null || true
       else uncleared_suspects | LC_ALL=C sort | head -1 > "$ST_SUSPECT_FLAG"; fi
+      suspect_state_sync
       notify cleared default N_CLEARED "$id"
     else say "$(msg E_ABORTED)"; fi
   else say "$(msg E_NOT_SUSPECT "$id")"; fi

@@ -4,7 +4,7 @@
 #
 # Reason codes are "code" or "code/arg/arg"; they are written to the audit area and turned
 # into text only when shown (catalog keys R_<CODE>). Two levels:
-#   warning: notification, LED leaves green, deletion continues
+#   warning: notification, the board LED leaves "ok", deletion continues
 #   suspect: generation kept and flagged, automatic deletion stops
 
 WARN=() SUSPECT=()

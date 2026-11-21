@@ -12,6 +12,14 @@ SRC=/src
 SIM=/run/sim
 DISK_IMG=/var/tmp/purser-disk.img
 
+# The container is privileged (CAP_SYS_TIME) and the clock is not namespaced: a chronyd
+# running in here would discipline the HOST clock. It never runs; the box sees a chronyc stub.
+no_clock_daemon() {
+  systemctl disable --now chrony.service chronyd.service >/dev/null 2>&1 || true
+  systemctl mask chrony.service chronyd.service >/dev/null 2>&1 || true
+  pkill -x chronyd 2>/dev/null || true
+}
+
 sanitize_dev() {
   # The container's /dev is its own tmpfs, but privileged containers see the host's device
   # nodes. Remove every node the code could touch by mistake.
@@ -197,7 +205,7 @@ class H(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(n).decode("utf-8", "replace")
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps({"path": self.path, "headers": dict(self.headers), "body": body}, ensure_ascii=False) + "\n")
-        self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
     def log_message(self, *a): pass
 s = http.server.HTTPServer(("127.0.0.1", 443), H)
 c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain("/etc/purser/test-ca.pem", "/run/purser-test/key.pem")
@@ -217,7 +225,7 @@ reset_box_state() {
 
 install -d /run/purser-test
 case ${1:-full} in
-  full) sanitize_dev; fake_tools; server_up; box_up; disk_up; notify_endpoint ;;
+  full) no_clock_daemon; sanitize_dev; fake_tools; server_up; box_up; disk_up; notify_endpoint ;;
   reset-box) reset_box_state; disk_up; : > /run/purser-test/notify.log ;;
   reset-all) reset_box_state; rm -rf /srv/server/generation/* /srv/server/ack/* /srv/server/ack/.contact /srv/server/cache/* /srv/src/*
              disk_up; : > /run/purser-test/notify.log ;;

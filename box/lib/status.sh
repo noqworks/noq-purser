@@ -102,6 +102,7 @@ cmd_status() {
   if [ -n "$suspects" ]; then
     say "$(msg S_SUSPECT "$suspects")"
     if [ -r "$AUDIT/supheli/$suspects" ]; then say "  $(reasons_text "$(cat "$AUDIT/supheli/$suspects")")"
+    elif [ -s "$ST_SUSPECT_REASONS" ]; then say "  $(reasons_text "$(cat "$ST_SUSPECT_REASONS")")"
     else
       v=$(kv_get "$ST_LAST_RUN" detail); [ -n "$v" ] && say "  $(reasons_text "$(tr ' ' '\n' <<< "$v")")"
     fi

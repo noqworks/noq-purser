@@ -1,0 +1,56 @@
+# NOQ Purser: optional unattended first boot. Copy this file, fill it in and embed it:
+#     image/build-image.sh --setup-conf my-setup.conf
+# The box reads it once at first boot (/etc/purser/setup.conf), writes purser.conf and the
+# notification secret from it, and then shreds it. Every value below is an example.
+# Without this file the first boot waits for "setup" on the serial console.
+#
+# A NEW disk is always prepared at the serial console ("setup"): its recovery passphrase is
+# shown exactly once and must be written on paper. Unattended first boot can only ADOPT a disk,
+# with the key moved from the old card (image/purser-card-migrate).
+
+# --- server gate ---
+SERVER="192.0.2.10"              # IPv4 address of the gate on the protected server
+SERVER_PORT="2222"               # port given to source/install.sh --port
+SERVER_USER="purser"
+# Fingerprint printed by source/install.sh / purser-admit ("SHA256:..."). The box accepts the
+# gate's host key unattended only when it matches; otherwise it waits for "setup".
+SERVER_HOSTKEY_FP="SHA256:exampleexampleexampleexampleexampleexample00"
+
+# --- sources inside each generation: type:directory[:prune days] ---
+KINDS="pgbackrest:pgbackrest borg:borg:7"
+
+# --- window ---
+NIGHT_AT="05:15"
+POLL_UNTIL="08:30"
+POLL_EVERY="300"
+MAX_MIN="80"
+LONG_DOW="7"
+# PRUNE_DOW="7"
+
+# --- notifications: ntfy (default) or a plain webhook ---
+NOTIFY_KIND="ntfy"
+NTFY_SERVER="https://ntfy.example.org"
+# NTFY_TOPIC=""                  # empty: a random topic is generated (shown by "status"/"setup")
+# NTFY_TOKEN=""
+# NOTIFY_KIND="webhook"
+# WEBHOOK_URL="https://hooks.example.org/purser"
+# WEBHOOK_TOKEN=""
+
+# --- language, time zone ---
+LANG_UI="en"                     # en | tr
+TZ="Europe/Berlin"               # only for local display; generation ids are UTC
+
+# --- network (wired only) ---
+NET_ADDRESS="192.0.2.15/24"      # empty = DHCP
+NET_GATEWAY="192.0.2.1"
+DNS_SERVERS="1.1.1.1 9.9.9.9"    # never the protected server
+NTP_SERVERS="192.0.2.1"          # e.g. the router; plus the pool below
+NTP_POOL="pool.ntp.org"
+MAINT_SSH_FROM=""                # empty = no SSH server on the box at all
+
+# --- hardware ---
+BOARD_LED="auto"                 # auto | none | name under /sys/class/leds
+SERIAL_TTY="ttyS0"
+
+# --- disk ---
+DISK_MODE="adopt"                # adopt (key moved from the old card) | new (needs the console)

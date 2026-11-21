@@ -4,6 +4,9 @@
 #   box/install.sh --root DIR       install into an image root (no apt, no services started)
 #   box/install.sh --packages       print the package list and exit
 # Re-runnable. Does not touch an existing /etc/purser/purser.conf or anything in the state area.
+#   ROOT_EXEC   command prefix that runs a program inside DIR (default: chroot DIR). The image
+#               build sets it to proot + qemu, so an arm64 root is prepared on any host.
+#   SERIAL_TTY  UART of the restricted console (default ttyS0, the Orange Pi Zero 3 debug UART)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=""
@@ -17,7 +20,18 @@ case ${1:-} in
 esac
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 LIB=$ROOT/usr/local/lib/purser
-in_root() { if [ -n "$ROOT" ]; then chroot "$ROOT" "$@"; else "$@"; fi; }
+SERIAL_TTY=${SERIAL_TTY:-ttyS0}
+[[ $SERIAL_TTY =~ ^tty[A-Za-z0-9]+$ ]] || { echo "bad SERIAL_TTY" >&2; exit 2; }
+in_root() {
+  if [ -z "$ROOT" ]; then "$@"
+  elif [ -n "${ROOT_EXEC:-}" ]; then
+    # shellcheck disable=SC2086  # ROOT_EXEC is a command prefix
+    $ROOT_EXEC "$@"
+  else chroot "$ROOT" "$@"; fi
+}
+root_systemctl() {   # systemctl on the image root: offline, through the image's own binary if needed
+  if [ -n "${ROOT_EXEC:-}" ]; then in_root systemctl --root=/ "$@"; else systemctl --root="$ROOT" "$@"; fi
+}
 
 if [ -z "$ROOT" ]; then
   # Packages are fetched only here. The box firewall (applied later by "purser apply-config")
@@ -46,14 +60,14 @@ install -d -m 0755 "$ROOT/etc/purser" "$ROOT/etc/purser/ssh" "$ROOT/srv/purser"
 install -d -m 0700 "$ROOT/etc/purser/sirlar" "$ROOT/var/lib/purser"
 
 # Serial console: agetty starts the restricted console instead of login.
-install -d "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d"
+install -d "$ROOT/etc/systemd/system/serial-getty@$SERIAL_TTY.service.d"
 printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty -n -l /usr/local/sbin/purser-console --keep-baud 115200,57600,38400,9600 %%I $TERM\n' \
-  > "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d/purser.conf"
+  > "$ROOT/etc/systemd/system/serial-getty@$SERIAL_TTY.service.d/purser.conf"
 
 if [ -n "$ROOT" ]; then
-  systemctl --root="$ROOT" enable purser-boot.service purser-firstboot.service serial-getty@ttyS0.service >/dev/null
-  systemctl --root="$ROOT" disable ssh.service ssh.socket >/dev/null 2>&1 || true
-  systemctl --root="$ROOT" mask ssh.service getty@tty1.service >/dev/null 2>&1 || true
+  root_systemctl enable purser-boot.service purser-firstboot.service "serial-getty@$SERIAL_TTY.service" >/dev/null
+  root_systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
+  root_systemctl mask ssh.service getty@tty1.service >/dev/null 2>&1 || true
 else
   systemctl daemon-reload
   systemctl enable purser-boot.service purser-firstboot.service >/dev/null

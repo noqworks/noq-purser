@@ -1,0 +1,121 @@
+#!/bin/bash
+# NOQ Purser: move a box's state from its OLD SD card onto a NEW NOQ Purser image (Linux only).
+#
+#   purser-card-migrate --from <old card | old root dir> --to <new card | .img file | new root dir> [--force]
+#
+#   --from  the old card (e.g. /dev/sdb; its root partition is found and mounted read-only) or a
+#           directory where its root file system is mounted
+#   --to    the new card after flashing, the .img file BEFORE flashing (one card reader is then
+#           enough: migrate into the image, then flash it), or a mounted new root
+#   --force replace a different purser.conf / an embedded setup.conf on the target
+#
+# Copied: /etc/purser/purser.conf, /etc/purser/sirlar/ (disk key, LUKS header backup,
+# notification address), /etc/purser/ssh/ (box key, gate host key), /var/lib/purser/ (state).
+# File modes are kept; ownership is set by the box at first boot (users are chowned by name).
+# Secret contents are never printed. The old card is only read.
+set -euo pipefail
+export LC_ALL=C
+FROM="" TO="" FORCE=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --from) FROM=$2; shift 2 ;;
+    --to) TO=$2; shift 2 ;;
+    --force) FORCE=1; shift ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$FROM" ] && [ -n "$TO" ] || { echo "usage: $0 --from <old card|dir> --to <new card|.img|dir> [--force]" >&2; exit 2; }
+[ "$(uname -s)" = Linux ] || { echo "Linux only: the cards hold ext4 file systems (use a Linux machine or VM)" >&2; exit 2; }
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+
+WORK=$(mktemp -d /tmp/purser-migrate.XXXXXX)
+MOUNTS=() LOOPS=() PARTS=() ROOT_FOUND=""
+cleanup() {
+  local m l i
+  sync
+  for (( i = ${#MOUNTS[@]} - 1; i >= 0; i-- )); do m=${MOUNTS[$i]:-}; [ -n "$m" ] && mountpoint -q "$m" && umount "$m"; done
+  for l in "${LOOPS[@]}"; do losetup -d "$l" 2>/dev/null || true; done
+  rmdir "$WORK"/* "$WORK" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Partitions of a block device or an image file -> PARTS. Image partitions are attached by
+# offset (no partition device nodes needed). No subshells: LOOPS must survive for cleanup.
+partitions() {   # partitions <device|image>
+  local d=$1 l start size
+  PARTS=()
+  if [ -f "$d" ]; then
+    while read -r start size; do
+      l=$(losetup -f --show -o $(( start * 512 )) --sizelimit $(( size * 512 )) "$d"); LOOPS+=("$l"); PARTS+=("$l")
+    done < <(sfdisk -d "$d" 2>/dev/null | sed -n 's/.*start= *\([0-9]*\), *size= *\([0-9]*\).*/\1 \2/p')
+  else
+    mapfile -t PARTS < <(lsblk -lnpo NAME,TYPE "$d" | awk '$2 == "part" { print $1 }')
+    [ ${#PARTS[@]} -gt 0 ] || PARTS=("$d")
+  fi
+}
+
+# Mount the partition of <thing> that holds <marker> -> ROOT_FOUND.
+root_of() {   # root_of <dev|img|dir> <ro|rw> <marker path> <label>
+  local t=$1 mode=$2 marker=$3 label=$4 p m opts
+  ROOT_FOUND=""
+  if [ -d "$t" ]; then [ -e "$t/$marker" ] && { ROOT_FOUND=$t; return 0; }; return 1; fi
+  [ -b "$t" ] || [ -f "$t" ] || { echo "$t: not a block device, image file or directory" >&2; return 1; }
+  partitions "$t"
+  for p in "${PARTS[@]}"; do
+    m=$WORK/$label-$(basename "$p"); mkdir -p "$m"
+    opts=$mode; [ "$mode" = ro ] && opts=ro,noload
+    mount -o "$opts" "$p" "$m" 2>/dev/null || mount -o "$mode" "$p" "$m" 2>/dev/null || { rmdir "$m"; continue; }
+    MOUNTS+=("$m")
+    [ -e "$m/$marker" ] && { ROOT_FOUND=$m; return 0; }
+    umount "$m"; unset 'MOUNTS[${#MOUNTS[@]}-1]'; rmdir "$m"
+  done
+  return 1
+}
+
+root_of "$FROM" ro etc/purser/purser.conf old || { echo "$FROM: no NOQ Purser box found (no etc/purser/purser.conf)" >&2; exit 1; }
+S=$ROOT_FOUND
+[ -d "$S/var/lib/purser" ] || { echo "$FROM: no state directory var/lib/purser" >&2; exit 1; }
+root_of "$TO" rw usr/local/lib/purser/image-release new || { echo "$TO: not a NOQ Purser image (no usr/local/lib/purser/image-release)" >&2; exit 1; }
+T=$ROOT_FOUND
+[ "$S" != "$T" ] || { echo "source and target are the same" >&2; exit 1; }
+
+echo "old box: $FROM"
+echo "new image: $TO ($(sed -n 's/^VERSION=//p' "$T/usr/local/lib/purser/image-release"))"
+if [ -e "$T/etc/purser/purser.conf" ] && ! cmp -s "$S/etc/purser/purser.conf" "$T/etc/purser/purser.conf" && [ $FORCE = 0 ]; then
+  echo "the target already has a different purser.conf; use --force to replace it" >&2; exit 1
+fi
+if [ -e "$T/etc/purser/setup.conf" ]; then
+  # kept on purpose: e.g. a fixed address (NET_ADDRESS), which the old card kept in its OS
+  echo "note: the target has an embedded setup.conf; at first boot its keys override the moved purser.conf"
+fi
+[ -e "$S/etc/purser/sirlar/luks.key" ] || echo "WARNING: the old card has no disk key (etc/purser/sirlar/luks.key); the disk cannot be adopted without it" >&2
+
+copy_tree() {   # copy_tree <relative dir>: contents, modes and times kept, owner root
+  local d=$1
+  [ -d "$S/$d" ] || return 0
+  install -d -m "$(stat -c %a "$S/$d")" "$T/$d"
+  cp -R --preserve=mode,timestamps --no-dereference "$S/$d/." "$T/$d/"
+  chown -R root:root "$T/$d"
+  find "$T/$d" -mindepth 1 -printf '  %P\n' | sed "s|^  |  /$d/|"
+}
+echo "copying (names only):"
+install -d -m 0755 "$T/etc/purser"
+cp --preserve=mode,timestamps "$S/etc/purser/purser.conf" "$T/etc/purser/purser.conf"; chown root:root "$T/etc/purser/purser.conf"
+echo "  /etc/purser/purser.conf"
+copy_tree etc/purser/sirlar
+copy_tree etc/purser/ssh
+copy_tree var/lib/purser
+# a fresh first boot on the new card: it adopts the disk, applies the configuration, fixes owners
+rm -f "$T/var/lib/purser/setup.done"
+[ -e "$T/var/lib/purser/setup" ] && sed -i '/^state=/d' "$T/var/lib/purser/setup"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$T/var/lib/purser/migrated"
+sync
+if [ -f "$TO" ]; then
+  # the image changed: unmount it first, then give it a new checksum for image/flash.sh
+  cleanup; trap - EXIT
+  ( cd "$(dirname "$TO")" && sha256sum "$(basename "$TO")" > "$(basename "$TO").sha256" )
+  echo "wrote $TO.sha256 (flash it with: image/flash.sh $TO <card>)"
+fi
+echo "done. The first boot of the new card adopts the disk and resumes the nightly job."
+echo "Keep the old card with the paper pack or erase it: it holds the disk key."

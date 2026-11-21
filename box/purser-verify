@@ -16,9 +16,9 @@ umask 077
 reject() { echo "$1"; exit 1; }
 
 check_list() {
-  local f=$1 id=$2 w
-  w=$(mktemp -d)
-  trap 'rm -rf "$w"' RETURN
+  local f=$1 id=$2
+  W=$(mktemp -d); local w=$W
+  trap 'rm -rf "$W"' EXIT   # reject() exits: a RETURN trap would leave the directory behind
   [ "$(head -c 16 "$f")" = "# purser-list 1" ] && [ "$(sed -n 1p "$f")" = "# purser-list 1" ] || reject LIST_VERSION
   # headers: the contiguous "# " block after the version line; everything after it is data
   awk -v h="$w/h" -v d="$w/d" 'NR == 1 { next }

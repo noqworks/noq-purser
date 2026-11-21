@@ -8,5 +8,7 @@ RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
       python3 openssl nftables chrony xz-utils e2fsprogs fdisk kmod file git acl sudo ufw dosfstools \
     && rm -rf /var/lib/apt/lists/* \
     && systemctl mask getty@tty1.service console-getty.service systemd-logind.service ssh.service ssh.socket 2>/dev/null || true
+# privileged container, clock not namespaced: chronyd must never run in here (it would set the host clock)
+RUN systemctl disable chrony.service 2>/dev/null; install -d /etc/systemd/system/chrony.service.d && printf "[Unit]\nConditionPathExists=/never-in-the-purser-lab\n" > /etc/systemd/system/chrony.service.d/purser-lab.conf
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

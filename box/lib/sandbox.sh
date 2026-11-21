@@ -26,7 +26,23 @@ sandbox() {   # sandbox <user> <writable path|-> <seconds> <net|nonet> -- comman
   else
     p+=(-p PrivateNetwork=yes -p RestrictAddressFamilies=AF_UNIX -p InaccessiblePaths="-$SSH_DIR")
   fi
-  systemd-run --wait --pipe --quiet --collect --expand-environment=no "${p[@]}" -- "$@"
+  if sandbox_expands_env; then
+    # systemd < 254 (Debian 12) has no --expand-environment=no and expands $NAME in the command
+    # line of the unit; "$$" is its escape for a literal "$".
+    local a esc=()
+    for a in "$@"; do esc+=("${a//\$/\$\$}"); done
+    systemd-run --wait --pipe --quiet --collect "${p[@]}" -- "${esc[@]}"
+  else
+    systemd-run --wait --pipe --quiet --collect --expand-environment=no "${p[@]}" -- "$@"
+  fi
+}
+
+# 0 when this systemd-run would expand variables in the command (no --expand-environment option).
+sandbox_expands_env() {
+  if [ -z "${SANDBOX_EXPANDS:-}" ]; then
+    if systemd-run --help 2>/dev/null | grep -q -- '--expand-environment'; then SANDBOX_EXPANDS=no; else SANDBOX_EXPANDS=yes; fi
+  fi
+  [ "$SANDBOX_EXPANDS" = yes ]
 }
 
 ssh_opts() {

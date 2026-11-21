@@ -62,8 +62,10 @@ notify_send() {   # notify_send <event> <priority> <text>; 0 = delivered
   else
     h+=(-H "Title: NOQ Purser" -H "Priority: $prio" -H "Tags: floppy_disk")
   fi
-  code=$(curl -sS --proto =https --max-time 20 -o /dev/null -w '%{http_code}' "${h[@]}" --data-binary "$text" "$url" 2>/dev/null) || code=000
-  [[ $code =~ ^2 ]] && return 0
+  # A 2xx answer means delivered, even if the connection then ends untidily (curl exit != 0):
+  # queueing it as well would send the alarm twice.
+  code=$(curl -sS --proto =https --max-time 20 -o /dev/null -w '%{http_code}' "${h[@]}" --data-binary "$text" "$url" 2>/dev/null || true)
+  [[ $code =~ ^2[0-9][0-9]$ ]] && return 0
   log "notification not delivered (http $code)"
   return 1
 }

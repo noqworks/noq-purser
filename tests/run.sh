@@ -6,6 +6,7 @@
 #   tests/run.sh unit e2e attack      selected suites (shellcheck unit e2e attack compat)
 #   tests/run.sh --make-fixture <original core> <out dir>   rebuild the compatibility fixture
 #   tests/run.sh --server-install     server install on Debian 13, Ubuntu 24.04, Ubuntu 26.04
+#   tests/run.sh --image-tools        flash.sh and purser-card-migrate (image/tests)
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 IMAGE=purser-test:trixie
@@ -14,6 +15,7 @@ command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 [ -e /.dockerenv ] && { echo "run this on the host, not inside a container" >&2; exit 2; }
 
 if [ "${1:-}" = --server-install ]; then shift; exec bash "$REPO/tests/install/server-install.sh" "$@"; fi
+if [ "${1:-}" = --image-tools ]; then exec bash "$REPO/image/tests/run.sh"; fi
 
 # Loop devices are global to the host kernel: lab runs and the image build take turns.
 exec 8>"${PURSER_LOOP_LOCK:-/tmp/noq-purser-loop.lock}"

@@ -14,6 +14,23 @@ uncleared_suspects() {
 }
 deletion_paused() { [ -n "$(uncleared_suspects | head -1)" ]; }
 
+# While the disk is open: copy the suspect state to the SD card, so "status" can show the
+# reason with the disk locked. The last sound generation is the one before the first uncleared
+# suspect (an older core advanced it past a suspect; an adopted disk is corrected here).
+suspect_state_sync() {
+  local first sound
+  first=$(uncleared_suspects | LC_ALL=C sort | head -1)
+  if [ -z "$first" ]; then rm -f "$ST_SUSPECT_REASONS"; return 0; fi
+  echo "$first" > "$ST_SUSPECT_FLAG"
+  tr -d '\000-\010\013-\037\177' < "$AUDIT/supheli/$first" | head -20 > "$ST_SUSPECT_REASONS"
+  sound=$(cat "$ST_LAST_SOUND" 2>/dev/null || true)
+  if [ -z "$sound" ] || [[ ! $sound < $first ]]; then
+    sound=$(find "$AUDIT/meta" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | grep -E "$ID_RE" | LC_ALL=C sort \
+            | awk -v f="$first" '$0 < f' | tail -1)
+    if [ -n "$sound" ]; then echo "$sound" > "$ST_LAST_SOUND"; else rm -f "$ST_LAST_SOUND"; fi
+  fi
+}
+
 # Weekly/monthly copies are cut from the first generation on or after the long-retention day
 # of each week (the day the weekly full backup exists).
 #

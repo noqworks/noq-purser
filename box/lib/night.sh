@@ -246,6 +246,7 @@ finish() {   # <id> <start>
   maintenance "$id" "$left"
   disk_usage_record
   cache_suspects
+  suspect_state_sync
   disk_close || closed=0
   echo "$id" > "$ST_LAST_PUBLISHED"
   if [ -n "$(uncleared_suspects_cached)" ]; then uncleared_suspects_cached | head -1 > "$ST_SUSPECT_FLAG"

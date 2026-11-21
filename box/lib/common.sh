@@ -36,6 +36,8 @@ load_config() {
   : "${SYS_DIR:=/sys}" "${DEV_DIR:=/dev}" "${BY_UUID_DIR:=/dev/disk/by-uuid}" "${MAPPER_DIR:=/dev/mapper}" "${RUN_DIR:=/run/purser}"
   : "${LOCK_FILE:=/run/purser.lock}" "${PURSER_BIN:=/usr/local/sbin/purser}" "${CONSOLE_UNIT:=}"
   : "${IMAGE_RELEASE:=$PURSER_LIB/image-release}"
+  # the prototype's installer wrote LUKS_UUID=yok ("none") until a disk was prepared
+  [ "$LUKS_UUID" = yok ] && LUKS_UUID=""
   frozen_names
 }
 
@@ -75,6 +77,7 @@ frozen_names() {
   ST_SENT_PREFIX=$STATE/sent.
   ST_SETUP=$STATE/setup
   ST_USB_PORT=$STATE/usb.port
+  ST_SUSPECT_REASONS=$STATE/suspect.reasons   # reason codes of the first uncleared suspect
   ST_CLOCK_SENT=$STATE/clock.sent
   ID_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$'
 }
