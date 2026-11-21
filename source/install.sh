@@ -52,12 +52,19 @@ need=()
 command -v rsync >/dev/null || need+=(rsync)
 command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || need+=(openssh-server)
 command -v runuser >/dev/null || need+=(util-linux)
+# rrsync (the read-only rsync wrapper of the rsync package) is a python3 script on current
+# distributions; rsync only "suggests" python3.
+command -v python3 >/dev/null || need+=(python3)
 if [ ${#need[@]} -gt 0 ]; then
   if [ $DEPS = 1 ] && command -v apt-get >/dev/null; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "${need[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "${need[@]}" \
+      || { apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "${need[@]}"; }
   else echo "missing packages: ${need[*]}" >&2; exit 1; fi
 fi
 RRSYNC=$(command -v rrsync || true)
+if [ -n "$RRSYNC" ] && head -1 "$RRSYNC" | grep -q python && ! command -v python3 >/dev/null; then
+  echo "rrsync needs python3, which is missing" >&2; exit 1
+fi
 if [ -z "$RRSYNC" ] && [ -r /usr/share/doc/rsync/scripts/rrsync.gz ]; then
   install -d "$SHARE"; gunzip -c /usr/share/doc/rsync/scripts/rrsync.gz > "$SHARE/rrsync"; chmod 0755 "$SHARE/rrsync"; RRSYNC=$SHARE/rrsync
 fi
