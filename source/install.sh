@@ -78,6 +78,7 @@ usermod -p '*' "$GATE_USER"
 
 step "programs"
 install -d -m 0755 "$PREFIX/sbin" "$SHARE"
+# install(1) replaces an existing symlink instead of writing through it
 install -m 0755 "$HERE/purser-source" "$HERE/purser-admit" "$PREFIX/sbin/"
 sed "s|^RRSYNC=.*|RRSYNC=\${RRSYNC:-$RRSYNC}|" "$HERE/purser-gate" > "$PREFIX/sbin/purser-gate.new"
 chmod 0755 "$PREFIX/sbin/purser-gate.new"; mv -f "$PREFIX/sbin/purser-gate.new" "$PREFIX/sbin/purser-gate"
@@ -106,8 +107,11 @@ while p=$(dirname "$p") && [ "$p" != / ]; do
 done
 
 step "units"
+# Written to a new file and renamed: an existing unit may be a symlink ("systemctl link") into
+# another tree, and writing through it would change that tree.
 for u in "${UNITS[@]}"; do
-  sed "s|@PREFIX@|$PREFIX|g; s|@TIMER_AT@|$TIMER_AT|g" "$HERE/systemd/$u" > "/etc/systemd/system/$u"
+  sed "s|@PREFIX@|$PREFIX|g; s|@TIMER_AT@|$TIMER_AT|g" "$HERE/systemd/$u" > "/etc/systemd/system/.$u.new"
+  mv -f "/etc/systemd/system/.$u.new" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
 systemctl enable --now purser-source-watch.timer >/dev/null

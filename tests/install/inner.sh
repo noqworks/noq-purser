@@ -38,7 +38,13 @@ ok "ack file written" grep -q '^tamam ' "/srv/purser/ack/$ID_"
 ok "gate: bad ack refused" sh -c "! $(printf '%q ' "${S[@]}") ack ../../etc/passwd"
 ok "gate: other commands refused" sh -c "! $(printf '%q ' "${S[@]}") cat /etc/shadow"
 ok "gate: no interactive shell" sh -c "! $(printf '%q ' "${S[@]}") </dev/null"
+# an existing unit that is a symlink into another tree ("systemctl link") must not be written through
+mkdir -p /opt/othertree && printf '[Unit]\nDescription=other tree\n' > /opt/othertree/purser-source-watch.service
+ln -sfn /opt/othertree/purser-source-watch.service /etc/systemd/system/purser-source-watch.service
+sum_before=$(sha256sum /opt/othertree/purser-source-watch.service)
 ok "install.sh is re-runnable" inst
+ok "a symlinked unit's target is left untouched" sh -c "[ \"\$(sha256sum /opt/othertree/purser-source-watch.service)\" = '$sum_before' ]"
+ok "the unit is now a regular file" sh -c "test -f /etc/systemd/system/purser-source-watch.service && ! test -L /etc/systemd/system/purser-source-watch.service"
 ok "admitted key kept by the re-run" grep -q 'command=' /etc/purser/ssh/authorized_keys
 ok "gate still answers after the re-run" sh -c "$(printf '%q ' "${S[@]}") latest | grep -qx $ID_"
 touch -d '-3 hours' "/srv/purser/ack/$ID_"; rm -f /run/alerts
