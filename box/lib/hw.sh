@@ -130,15 +130,17 @@ clock_state() {
   local ref rw rm w m d f=$RUN_DIR/clock.ref j=$RUN_DIR/clock.jump worst built
   install -d -m 0755 "$RUN_DIR"
   w=$(now); m=$(mono)
+  built=$(kv_get "$IMAGE_RELEASE" BUILD_DATE)
+  if [[ $built =~ ^[0-9]+$ ]] && [ "$w" -lt "$built" ]; then rm -f "$f"; echo early; return 0; fi
+  # The wall/monotonic reference is kept only while chrony is synchronised: the step chrony
+  # makes after boot (no battery clock) is the clock being set, not a jump.
+  if ! chrony_synced; then rm -f "$f"; echo unsynced; return 0; fi
   if read -r rw rm < "$f" 2>/dev/null && [[ ${rw:-} =~ ^[0-9]+$ ]] && [[ ${rm:-} =~ ^[0-9]+$ ]]; then
     d=$(( (w - rw) - (m - rm) )); d=${d#-}
     if [ "$d" -gt "$CLOCK_JUMP_MAX" ]; then echo "$m $d" > "$j"; fi
   fi
   echo "$w $m" > "$f"
-  built=$(kv_get "$IMAGE_RELEASE" BUILD_DATE)
-  if [[ $built =~ ^[0-9]+$ ]] && [ "$w" -lt "$built" ]; then echo early; return 0; fi
   if read -r ref _ < "$j" 2>/dev/null && [[ ${ref:-} =~ ^[0-9]+$ ]] && [ $(( m - ref )) -lt 3600 ]; then echo jump; return 0; fi
-  chrony_synced || { echo unsynced; return 0; }
   worst=$(chrony_worst_offset)
   if [[ $worst =~ ^[0-9]+$ ]] && [ "$worst" -gt "$CLOCK_JUMP_MAX" ]; then echo disagree; return 0; fi
   echo ok

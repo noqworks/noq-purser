@@ -1,6 +1,8 @@
-# Test environment for NOQ Purser. Debian 13 with systemd as PID 1 so the
-# real systemd-run sandbox can be exercised. Nothing here runs on the host.
-FROM debian:trixie
+# Test environment for NOQ Purser. Debian with systemd as PID 1 so the real systemd-run sandbox
+# can be exercised. Nothing here runs on the host. BASE=debian:bookworm matches the box image
+# (systemd 252); the default debian:trixie is the current release.
+ARG BASE=debian:trixie
+FROM ${BASE}
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
       systemd systemd-sysv dbus bash coreutils findutils mawk sed grep util-linux util-linux-extra procps \

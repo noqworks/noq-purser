@@ -305,6 +305,50 @@ do not change.
 (`image/purser-card-migrate`); the box never updates itself. After 6 months the box asks for a new
 image.
 
+## The repository is a target too
+
+A backup tool with a backdoor is worse than no backup tool.
+
+- The box never fetches code; updating is replacing the SD card.
+- Distribution packages only, no other dependencies.
+- The image is built by a script from a pinned, checksummed base; publish its sha256 with it.
+  Bit-for-bit reproducibility is a goal, not a claim.
+- Releases should be signed with a key that lives on a hardware token, never on a server or in a
+  server's secret store: a project that says "assume your server is compromised" cannot keep its
+  signing key there. Signing is not part of this release.
+- The code stays small enough to read in a sitting.
+
+## Options that were rejected
+
+| Option | Why not |
+| --- | --- |
+| Cloud backup | Out of scope: NOQ Purser is a physical copy next to the server, not a cloud alternative |
+| A ready-made NAS | Online around the clock; becomes a target itself |
+| A random window time | Adds no protection, produces false alarms, makes the out-of-window alert meaningless |
+| Finishing a half-transferred older generation | The server's ceiling may delete it; the box always goes to the newest |
+| Taking the disk key from the server | Makes the box depend on the server; the sources are encrypted with their own tools anyway |
+| Deleting by the server's "clean" verdict | A compromised server could age healthy history and have it deleted |
+| Leaving name checks to the server | A compromised server does not run the rule; the check is on the box |
+| Parsing rsync's output for changed files | Means parsing hostile input; list difference and ctime difference instead |
+| A full hash scan every night | Does not fit the window over USB 2.0; changed files are read back, the rest slice by slice |
+| Treating a large change as suspect on its own | A busy day, a migration or a new source would raise false alarms every week; it is a warning |
+| Clearing a suspect only by removing the disk | Too costly for every false alarm; the serial console with the operation code is enough |
+| Carrying WAL into long retention | Generations of different weeks share no blocks; retention would cost several times more |
+| Decoy files and entropy as the security claim | A capable attacker avoids them; they are signals against careless attackers only |
+| A relay that cuts the disk's power | The box would drive it: whoever controls the box controls the relay. No protection, one more failure mode |
+| A battery clock module | Time comes from the network, untrusted time stops the night, retention counts nights |
+| A time lock independent of the box | With a single disk it adds no security, only a failure mode |
+| A second (monthly) disk | Out of scope for this release |
+| Updating the box over the network | A second path of trust; the answer to rsync bugs is the sandbox and the checks |
+| A multi-channel notification library | A dependency outside the distribution; `curl` is enough |
+| Screen and buttons on the box | Extra parts and an extra process; state in `status`, notifications and the board LED |
+| A network interface or API on the box | Means a listening service |
+| An unprotected serial console | Makes the code pointless; every path asks for it, only the code reset is the notified exception |
+| Entering the disk passphrase into the box | Not needed; it is entered only into a computer at a restore |
+| A list of one-time codes | One code, the attempt limit and renewal are enough |
+| Pinning from the server | A compromised server would pin a poisoned generation |
+| A public live attack contest | A server with root given to strangers is abused within hours |
+
 ## Not in this release
 
 Read-only root file system and a separate state partition; btrfs quota on staging (the ceilings

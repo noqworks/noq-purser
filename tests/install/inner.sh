@@ -2,6 +2,7 @@
 # Inside a fresh systemd container: install the server side, publish a generation, admit a box
 # key, use the gate as the box would, re-install, watch alert, uninstall.
 set -uo pipefail
+umask 077   # a strict root umask must not break the gate
 P=0 F=0
 ok() { local d=$1; shift; if "$@" >/dev/null 2>&1; then P=$((P + 1)); echo "  ok    $d"; else F=$((F + 1)); echo "  FAIL  $d"; fi; }
 . /etc/os-release; echo "== $PRETTY_NAME"
@@ -11,7 +12,8 @@ ok "install.sh runs (installs its own dependencies)" inst
 ok "rsync installed by the installer" command -v rsync
 ok "sshd installed by the installer" test -x /usr/sbin/sshd
 ok "gate user exists without a password" sh -c "getent shadow purser | cut -d: -f2 | grep -qx '\*'"
-mkdir -p /srv/data/dumps && head -c 4096 /dev/urandom > /srv/data/dumps/dump-1.sql.gz
+# a backup job writes its files with its own (ordinary) umask
+( umask 022; mkdir -p /srv/data/dumps && head -c 4096 /dev/urandom > /srv/data/dumps/dump-1.sql.gz )
 cat > /etc/purser/source.conf <<'C'
 BASE="/srv/purser"
 GATE_USER="purser"
@@ -21,6 +23,15 @@ ALERT_CMD=(sh -c 'echo "$1 $2" >> /run/alerts' _)
 ACK_ALERT_H="1"
 C
 ok "purser-source check" /usr/local/sbin/purser-source check
+# a file the gate user cannot read (hard-link freeze shares the inode): refused with a reason, nothing published
+( umask 077; head -c 100 /dev/urandom > /srv/data/dumps/secret.bin )
+sed 's/^FREEZE=.*/FREEZE="hardlink"/' /etc/purser/source.conf > /etc/purser/source-hl.conf
+HL=(env PURSER_SOURCE_CONF=/etc/purser/source-hl.conf PURSER_SOURCE_ID=2026-02-28T03-10Z /usr/local/sbin/purser-source run)
+"${HL[@]}" > /run/hl.out 2>&1; hl=$?
+ok "hard-link freeze, unreadable source file: run refused" sh -c "[ $hl != 0 ] && ! test -e /srv/purser/generation/2026-02-28T03-10Z"
+ok "hard-link freeze, unreadable source file: the reason is given" grep -q 'cannot read every file' /run/hl.out
+rm -f /etc/purser/source-hl.conf
+rm -f /srv/data/dumps/secret.bin
 ok "a generation is published" env PURSER_SOURCE_ID=$ID_ /usr/local/sbin/purser-source run
 ok "LATEST names it" grep -qx "$ID_" /srv/purser/generation/LATEST
 ok "its list starts with the version line" sh -c "head -1 /srv/purser/generation/$ID_.list | grep -qx '# purser-list 1'"

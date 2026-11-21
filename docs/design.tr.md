@@ -295,6 +295,50 @@ değişmez.
 **Güncelleme**, yeni üretilmiş imajlı SD kartı takıp durumu taşımaktır
 (`image/purser-card-migrate`); kutu kendini hiç güncellemez. 6 ay dolunca kutu yeni imaj ister.
 
+## Deponun kendisi de hedef
+
+Arka kapı yerleştirilmiş bir yedek aracı, hiç yedek aracı olmamasından kötüdür.
+
+- Kutu hiç kod çekmez; güncelleme SD kartı değiştirmektir.
+- Yalnız dağıtım paketleri; başka bağımlılık yok.
+- İmaj, sabitlenmiş ve özeti denetlenen bir tabandan betikle üretilir; sha256'sını onunla
+  yayımlayın. Bit bit yeniden üretilebilirlik hedeftir, iddia değildir.
+- Sürümler, hiçbir sunucuda ya da sunucunun sır kasasında değil, donanım anahtarında duran bir
+  anahtarla imzalanmalı: "sunucunuzun ele geçirildiğini varsayın" diyen bir proje imza anahtarını
+  orada tutamaz. İmza bu sürümde yok.
+- Kod bir oturuşta okunacak kadar küçük kalır.
+
+## Elenen seçenekler
+
+| Seçenek | Neden olmaz |
+| --- | --- |
+| Bulut yedek | Kapsam dışı: NOQ Purser sunucunun yanındaki fiziksel kopyadır, buluta alternatif değil |
+| Hazır NAS | 7/24 ağda; kendisi hedef olur |
+| Rastgele pencere saati | Koruma katmaz, yanlış alarm üretir, pencere dışı bağlantı uyarısını anlamsız kılar |
+| Yarım kalmış eski nesli tamamlamak | Sunucunun tavanı onu silebilir; kutu her zaman en yeniye gider |
+| Disk anahtarını sunucudan almak | Kutuyu sunucuya bağımlı yapar; kaynaklar zaten kendi araçlarıyla şifreli |
+| Sunucunun "temiz" hükmüne göre silmek | Ele geçirilmiş sunucu sağlam geçmişi yaşlandırıp sildirebilir |
+| Ad denetimini sunucuya bırakmak | Ele geçirilmiş sunucu kuralı çalıştırmaz; denetim kutuda |
+| Değişen dosyaları rsync dökümünden çıkarmak | Düşman girdiyi ayrıştırmak demek; yerine liste farkı ve ctime farkı |
+| Her gece tam özet taraması | USB 2.0'da pencereye sığmaz; değişenler geri okunur, kalanı dilim dilim |
+| Büyük değişimi tek başına şüpheli saymak | Yoğun gün, göç ya da yeni kaynak her hafta yanlış alarm üretir; uyarıdır |
+| Şüpheyi yalnız disk sökerek kaldırmak | Her yanlış alarmda çok pahalı; işlem koduyla seri konsol yeter |
+| Uzun saklamada WAL taşımak | Farklı haftaların nesilleri blok paylaşmaz; saklama birkaç kat pahalanır |
+| Tuzak dosya ve entropiyi güvenlik iddiası yapmak | Yetkin saldırgan atlatır; yalnız dikkatsize karşı sinyal |
+| Diskin gücünü kesen röle | Onu kutu sürerdi: kutuyu yöneten röleyi de yönetir. Koruma yok, bir arıza kaynağı daha |
+| Pilli saat modülü | Saat ağdan gelir, güvenilmeyen saat geceyi durdurur, saklama geceleri sayar |
+| Kutudan bağımsız zaman kilidi | Tek diskte güvenlik katmaz, yalnız arıza kaynağı |
+| İkinci (aylık) disk | Bu sürümün kapsamı dışında |
+| Kutuyu ağdan güncellemek | İkinci bir güven yolu; rsync açıklarına karşılık kum havuzu ve denetimdir |
+| Çok kanallı bildirim kütüphanesi | Dağıtım dışı bağımlılık; `curl` yeter |
+| Kutuda ekran ve düğmeler | Fazladan parça ve süreç; durum `status`'ta, bildirimde ve kart LED'inde |
+| Kutuda ağdan erişilen arayüz ya da API | Dinleyen servis demek |
+| Seri konsolun korumasız kalması | Kodu anlamsız kılar; her yol kodu ister, yalnız kod sıfırlama bildirimli istisnadır |
+| Disk parolasını kutuya girmek | Gerekmez; parola yalnız geri yüklemede bir bilgisayara girilir |
+| Tek kullanımlık kod listesi | Tek kod, deneme sınırı ve yenileme yeter |
+| Sabitlemenin sunucudan gelmesi | Ele geçirilmiş sunucu zehirli nesli sabitler |
+| Herkese açık canlı saldırı yarışması | Yabancılara root verilen sunucu saatler içinde kötüye kullanılır |
+
 ## Bu sürümde olmayanlar
 
 Salt okunur kök dosya sistemi ve ayrı durum bölümü; hazırlık alanında btrfs kotası (tavanlar

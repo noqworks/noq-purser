@@ -6,6 +6,7 @@
 #                                      moves /etc/purser aside (nothing is deleted)
 # Then: edit /etc/purser/source.conf, and once the box shows its key: purser-admit <ip> '<key>'
 set -euo pipefail
+umask 022   # the gate user reads source.conf and the programs, whatever umask root has
 HERE=$(cd "$(dirname "$0")" && pwd)
 LISTEN="" PORT=2222 BASE=/srv/purser GATE_USER=purser TIMER_AT=04:30 PREFIX=/usr/local DEPS=1 UNINSTALL=0
 while [ $# -gt 0 ]; do
@@ -125,6 +126,10 @@ fi
 step "self-check"
 SSH_ORIGINAL_COMMAND="cat /etc/shadow" runuser -u "$GATE_USER" -- "$PREFIX/sbin/purser-gate" >/dev/null 2>&1 \
   && { echo "ERROR: the gate accepted a forbidden request" >&2; exit 1; } || echo "gate refuses unknown requests"
+# exit 3 = the gate cannot read BASE from the configuration (permissions of source.conf or its directory)
+rc=0; SSH_ORIGINAL_COMMAND=latest runuser -u "$GATE_USER" -- "$PREFIX/sbin/purser-gate" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 3 ] || { echo "ERROR: $GATE_USER cannot read BASE from /etc/purser/source.conf (check its permissions)" >&2; exit 1; }
+echo "gate reads its configuration"
 case $(command -v ufw >/dev/null && ufw status 2>/dev/null | head -1) in
   *active*) echo "firewall: ufw active (purser-admit adds the rule)" ;;
   *) if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then echo "firewall: firewalld (purser-admit adds the rule)"

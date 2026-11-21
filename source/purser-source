@@ -12,6 +12,7 @@
 #   purser-source check   validate the configuration
 set -euo pipefail
 export LC_ALL=C
+umask 022   # what the gate user must read is created readable for its group, whatever umask root has
 CONF=${PURSER_SOURCE_CONF:-/etc/purser/source.conf}
 [ -r "$CONF" ] || { echo "purser-source: $CONF missing" >&2; exit 2; }
 # shellcheck source=/dev/null
@@ -191,11 +192,10 @@ run() {
       chgrp -R "$GATE_USER" "$TMP/$name"; chmod -R g+rX,g-w,o-rwx "$TMP/$name"
     fi
   done
-  chgrp "$GATE_USER" "$TMP"
+  chgrp "$GATE_USER" "$TMP"; chmod 0751 "$TMP"
   if [ -n "$(runuser -u "$GATE_USER" -- find "$TMP" ! -readable -print -quit 2>/dev/null)" ]; then
     die "$GATE_USER cannot read every file of the frozen copy; add it to the owning group or use FREEZE=reflink/copy" 1 permissions
   fi
-  chmod 0751 "$TMP"
   { echo "# purser-list 1"
     echo "# generation=$ID"
     echo "# created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

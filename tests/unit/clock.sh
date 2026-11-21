@@ -19,6 +19,13 @@ eq "wall clock jumps 1 h ahead of the monotonic clock" jump "$(PURSER_FAKE_NOW=$
 eq "still untrusted half an hour later" jump "$(PURSER_FAKE_NOW=$((T + 6400)) PURSER_FAKE_MONO=2500 clock_state)"
 eq "trusted again an hour after the jump" ok "$(PURSER_FAKE_NOW=$((T + 8300)) PURSER_FAKE_MONO=4400 clock_state)"
 eq "a backward jump counts too" jump "$(PURSER_FAKE_NOW=$((T + 1000)) PURSER_FAKE_MONO=4500 clock_state)"
+# boot without a battery clock: "status" at console start, before chrony's first step, must not
+# turn that step into a jump
+fresh; echo unsynced > /run/sim/chrony
+eq "boot: unsynced before the first step" unsynced "$(PURSER_FAKE_NOW=$((T - 10800)) PURSER_FAKE_MONO=10 clock_state)"
+rm -f /run/sim/chrony
+eq "boot: chrony stepped the clock 3 h forward: ok, not a jump" ok "$(PURSER_FAKE_NOW=$T PURSER_FAKE_MONO=40 clock_state)"
+eq "boot: and stays ok" ok "$(PURSER_FAKE_NOW=$((T + 600)) PURSER_FAKE_MONO=640 clock_state)"
 fresh
 printf 'BUILD_DATE=%s\n' "$(( $(date +%s) + 30 * 86400 ))" > /run/purser-test/image-release
 IMAGE_RELEASE=/run/purser-test/image-release

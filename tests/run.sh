@@ -7,9 +7,11 @@
 #   tests/run.sh --make-fixture <original core> <out dir>   rebuild the compatibility fixture
 #   tests/run.sh --server-install     server install on Debian 13, Ubuntu 24.04, Ubuntu 26.04
 #   tests/run.sh --image-tools        flash.sh and purser-card-migrate (image/tests)
+#   PURSER_TEST_BASE=debian:bookworm tests/run.sh   the same suites on the box image's Debian
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-IMAGE=purser-test:trixie
+BASE=${PURSER_TEST_BASE:-debian:trixie}   # debian:bookworm = the box image's Debian
+IMAGE=purser-test:${BASE#debian:}
 NAME=purser-lab-$$
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 [ -e /.dockerenv ] && { echo "run this on the host, not inside a container" >&2; exit 2; }
@@ -20,7 +22,7 @@ if [ "${1:-}" = --image-tools ]; then exec bash "$REPO/image/tests/run.sh"; fi
 # Loop devices are global to the host kernel: lab runs and the image build take turns.
 exec 8>"${PURSER_LOOP_LOCK:-/tmp/noq-purser-loop.lock}"
 flock 8
-docker build -q -t "$IMAGE" "$REPO/tests/container" >/dev/null
+docker build -q --build-arg BASE="$BASE" -t "$IMAGE" "$REPO/tests/container" >/dev/null
 mounts=(-v "$REPO:/src:ro")
 if [ "${1:-}" = --make-fixture ]; then
   old=$(readlink -f "${2:?original core}"); out=$(readlink -f "${3:?out dir}"); mkdir -p "$out"

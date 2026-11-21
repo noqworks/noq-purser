@@ -3,6 +3,7 @@
 #   purser-admit <box ipv4> '<ssh-ed25519 public key>'
 #   purser-admit --revoke          remove the key, stop the gate, remove the firewall rule
 set -euo pipefail
+umask 022
 GATE_CONF=/etc/purser/gate.conf
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 [ -r "$GATE_CONF" ] || { echo "$GATE_CONF missing: run source/install.sh first" >&2; exit 1; }
