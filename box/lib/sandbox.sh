@@ -46,6 +46,8 @@ remote() {   # remote <request...>
 rsync_opts() {
   RSYNC_OPTS=(rsync -rt --perms --chmod=D0755,F0644 --delete --no-links --no-specials --no-devices
               --timeout="$RSYNC_IO_TIMEOUT" --partial-dir=.purser-partial --max-size="$MAX_FILE_SIZE")
+  [ -n "${RSYNC_BWLIMIT:-}" ] && RSYNC_OPTS+=(--bwlimit="$RSYNC_BWLIMIT")
+  return 0
 }
 
 verify() {   # verify <subcommand> args...  (no network, writes nowhere)

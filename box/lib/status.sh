@@ -59,7 +59,7 @@ clock_check() {
   if [ "$worst" -lt 5 ] && chronyc -c tracking 2>/dev/null | awk -F, '$NF != "Not synchronised" { f = 1 } END { exit !f }' \
      && due_once rtc_write 86400; then
     local rtc; rtc=$(rtc_device 2>/dev/null || true)
-    [ -n "$rtc" ] && hwclock --systohc -f "$rtc" 2>/dev/null || true
+    [ -n "$rtc" ] && [ "$(gpio_mode)" != sim ] && hwclock --systohc -f "$rtc" 2>/dev/null || true
   fi
   return 0
 }

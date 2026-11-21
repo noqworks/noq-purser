@@ -133,7 +133,7 @@ run() {
   install -d -m 0770 -g "$GATE_USER" "$ACK"
   wait_ready
   for c in "${PRE_FREEZE_CMDS[@]}"; do bash -c "$c" >/dev/null || die "pre-freeze command failed: ${c%% *}" 1 pre_freeze; done
-  ID=$(date -u +%Y-%m-%dT%H-%MZ)
+  ID=${PURSER_SOURCE_ID:-$(date -u +%Y-%m-%dT%H-%MZ)}   # PURSER_SOURCE_ID: test suite only
   [ ! -e "$GEN/$ID" ] || die "generation $ID exists already" 1 exists
   TMP=$GEN/.build-$ID
   trap 'rm -rf -- "$TMP" "$TMP.list" "$TMP.cache" "$TMP".w' EXIT

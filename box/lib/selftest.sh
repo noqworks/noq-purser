@@ -18,7 +18,7 @@ cmd_selftest() {
     dev=$(disk_dev || true)
   else
     sleep 8
-    dev=$(lsblk -dnpo NAME,TRAN 2>/dev/null | awk '$2 == "usb" { print $1; exit }' || true)
+    dev=$(usb_disks | awk '{ print $1; exit }' || true)
     t=1; [ -n "$dev" ] && t=0; st_line $t "$(msg ST_DISK_SEEN_USB "${dev:-none}")"
   fi
   if [ -n "$dev" ]; then
@@ -34,7 +34,7 @@ cmd_selftest() {
   rtc=$(rtc_device 2>/dev/null || true)
   if [ -n "$rtc" ]; then
     local r d
-    r=$(hwclock -r -f "$rtc" 2>/dev/null || true)
+    if [ "$(gpio_mode)" = sim ]; then r=$(date -d "@$(cat "$rtc")"); else r=$(hwclock -r -f "$rtc" 2>/dev/null || true); fi
     d=$(( $(date -d "$r" +%s 2>/dev/null || echo 0) - $(date +%s) )); d=${d#-}
     t=1; [ -n "$r" ] && [ "$d" -lt 120 ] && t=0
     st_line $t "$(msg ST_RTC "$rtc" "$d")"

@@ -203,6 +203,7 @@ publish() {   # <id> <work dir> <start>
   if [ ${#SUSPECT[@]} -gt 0 ]; then printf '%s\n' "${SUSPECT[@]}" > "$AUDIT/supheli/.$id.pending"; fi
   sync
   btrfs -q subvolume snapshot -r "$STAGING" "$GEN_DIR/gen-$id"
+  [ "${PURSER_FAULT:-}" = after_snapshot ] && { log "fault injection: stopping after the snapshot"; exit 99; }
   publish_recover "$id"
   btrfs -q subvolume delete "$STAGING"
 }

@@ -46,7 +46,7 @@ cmd_boot() {
   relay_set 0; led_set off
   install -d -m 0755 "$RUN_DIR/chrony.d"
   rtc=$(rtc_device 2>/dev/null || true)
-  if [ -n "$rtc" ] && hwclock --hctosys -f "$rtc" 2>/dev/null; then
+  if [ -n "$rtc" ] && { [ "$(gpio_mode)" = sim ] || hwclock --hctosys -f "$rtc" 2>/dev/null; }; then
     log "system clock taken from $rtc: $(date -u +%FT%TZ)"
     step="maxchange $CLOCK_JUMP_MAX 0 -1"
   else

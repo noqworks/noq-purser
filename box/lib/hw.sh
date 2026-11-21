@@ -63,6 +63,7 @@ led_set() {   # led_set green|red|red-blink|both|off
 # DS3231 on any I2C bus at 0x68. Sets the system clock from it at boot.
 rtc_device() {
   local b n r
+  if [ "$(gpio_mode)" = sim ]; then [ -e "$SIM_DIR/rtc" ] && { echo "$SIM_DIR/rtc"; return 0; }; return 1; fi
   for b in /sys/bus/i2c/devices/i2c-*; do
     [ -e "$b" ] || continue
     n=${b##*-}
@@ -77,6 +78,7 @@ rtc_device() {
 # USB link speed (Mbit/s) of the block device: 480 = High Speed.
 usb_speed() {   # usb_speed /dev/sdX
   local p
+  if [ "$(gpio_mode)" = sim ]; then cat "$SIM_DIR/usb-speed" 2>/dev/null || echo 480; return 0; fi
   p=$(readlink -f "/sys/class/block/$(basename "$1")" 2>/dev/null) || return 1
   while [ -n "$p" ] && [ "$p" != / ]; do
     [ -r "$p/speed" ] && [ -r "$p/idVendor" ] && { cat "$p/speed"; return 0; }

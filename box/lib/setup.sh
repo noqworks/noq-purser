@@ -165,7 +165,11 @@ dns_apply() {
 
 # --- disk: new (LUKS2 + btrfs) or adopted (key moved from the old card) ---
 
-usb_disks() { lsblk -dnpo NAME,TRAN,SIZE,MODEL,SERIAL 2>/dev/null | awk '$2 == "usb"'; }
+# In GPIO_MODE=sim (tests) device discovery comes from a file: tests never see real disks.
+usb_disks() {
+  if [ "$(gpio_mode)" = sim ]; then [ "$(cat "$SIM_DIR/relay" 2>/dev/null)" = 1 ] && cat "$SIM_DIR/usb-disks" 2>/dev/null; return 0; fi
+  lsblk -dnpo NAME,TRAN,SIZE,MODEL,SERIAL 2>/dev/null | awk '$2 == "usb"'
+}
 
 disk_power_wait() {   # energize and wait until at least one USB disk shows up
   local i

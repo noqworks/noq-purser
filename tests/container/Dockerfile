@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
       systemd systemd-sysv dbus bash coreutils findutils mawk sed grep util-linux util-linux-extra procps \
       rsync openssh-server openssh-client btrfs-progs argon2 shellcheck curl ca-certificates \
-      python3 nftables chrony xz-utils e2fsprogs fdisk kmod file git acl sudo \
+      python3 openssl nftables chrony xz-utils e2fsprogs fdisk kmod file git acl sudo ufw dosfstools \
     && rm -rf /var/lib/apt/lists/* \
     && systemctl mask getty@tty1.service console-getty.service systemd-logind.service ssh.service ssh.socket 2>/dev/null || true
 STOPSIGNAL SIGRTMIN+3

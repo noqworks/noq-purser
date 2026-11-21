@@ -59,6 +59,7 @@ printf 'from="%s",restrict,command="%s/sbin/purser-gate" %s\n' "$ip" "$PREFIX" "
 chmod 0644 "$AK.new"; mv -f "$AK.new" "$AK"
 sed -e "s|@LISTEN@|$LISTEN_ADDR|; s|@PORT@|$PORT|; s|@USER@|$GATE_USER|; s|@BOX_IP@|$ip|; s|@PREFIX@|$PREFIX|; s|@KEX@|$kex|" \
   "$SHARE/sshd_config.in" > /etc/purser/sshd_config.new
+install -d -m 0755 /run/sshd
 /usr/sbin/sshd -t -f /etc/purser/sshd_config.new
 mv -f /etc/purser/sshd_config.new /etc/purser/sshd_config
 install -d /etc/systemd/system/purser-sshd.service.d
