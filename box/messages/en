@@ -3,25 +3,29 @@ USAGE|usage: purser run [--first-fill] | tick | boot | firstboot | apply-config 
 ERR_CONFIG_MISSING|Configuration incomplete, missing: %s (run "setup" on the serial console).
 ERR_BUSY|Another purser job is running.
 # --- notifications ---
-N_NO_GENERATION|The server produced no generation tonight. Last sound backup: %s. The disk stayed off.
+N_NO_GENERATION|The server produced no generation tonight. Last sound backup: %s. The disk stayed locked.
 N_LIST_FETCH|Could not fetch the list of generation %s.
 N_LIST_REJECTED|The server's list for %s breaks the format (%s); generation not taken.
-N_TREE_TYPE|Something other than a file or directory arrived in %s; generation not taken. Disk off.
-N_TREE_MISMATCH|The tree of %s does not match its list; not published. Disk off.
-N_VERIFY_FAILED|Read-back verification of %s failed; not published. Disk off.
-N_NO_TIME|No time left in the window for %s; it continues next night. Disk off.
-N_PARTIAL|%s minutes passed and the transfer is not complete; the rest follows next night. Disk off.
+N_TREE_TYPE|Something other than a file or directory arrived in %s; generation not taken. Disk locked.
+N_TREE_MISMATCH|The tree of %s does not match its list; not published. Disk locked.
+N_VERIFY_FAILED|Read-back verification of %s failed; not published. Disk locked.
+N_NO_TIME|No time left in the window for %s; it continues next night. Disk locked.
+N_PARTIAL|%s minutes passed and the transfer is not complete; the rest follows next night. Disk locked.
 N_DONE|Backup taken tonight, %s GB, %s minutes.%s
 N_WARNING|Backup taken tonight, %s GB, %s minutes. Warning: %s. Kept; not counted as suspect.%s
 N_SUSPECT|Tonight's backup %s is suspect: %s. Kept, flagged, deletion stopped.%s
-N_TAIL_DISK_OFF| Disk off.
+N_TAIL_DISK_LOCKED| Disk locked.
 N_TAIL_NONE|
 N_DISK_FULL|The disk is full; no new generation taken. With a suspect present no old generation is deleted.
 N_DELETION_PAUSED|Deletion has been paused for %s days. Clearing the suspect needs someone at the box.
 N_LATE|The last sound backup is %s hours old.
-N_CLOCK_JUMP|Network time differs from the box clock by %s minutes; not accepted.
-N_DISK_NOT_SEEN|The disk got power but did not show up on USB.
-N_POWER_NOT_OFF|The disk was switched off but its voltage did not drop.
+N_CLOCK_JUMP|The box clock jumped by %s minutes; no generation is taken until it is steady again.
+N_CLOCK_DISAGREE|Network time differs from the box clock by %s minutes; not accepted.
+N_CLOCK_UNSYNCED|The box clock is not synchronised with network time.
+N_CLOCK_EARLY|The box clock is earlier than the build date of its image; it is wrong.
+N_CLOCK_UNTRUSTED|No generation taken tonight: the clock cannot be trusted (%s). The disk stayed locked.
+N_DISK_NOT_SEEN|The disk is not visible or not readable on USB, also after one USB reset of the bridge. Check the cable.
+N_DISK_NOT_CLOSED|The disk could not be locked (still mounted or unlocked). Check it at the console with "status".
 N_IMAGE_AGE|The SD card image is %s months old; put in a new one.
 N_TIMER_OFF|The nightly job (purser.timer) is disabled; no backups until it is enabled again.
 N_CODE_LOCKED|Operation code entered wrongly %s times; the console is locked for %s minutes.
@@ -34,6 +38,8 @@ N_SCRUB_ERRORS|btrfs scrub found errors: %s
 N_SCAN_MISMATCH|Full scan: generation %s has %s files that do not match its list (disk damage?).
 N_BOX_READY|Box started: NOQ Purser %s, last generation %s.
 N_SETUP_WAITING|Setup is waiting at the serial console: %s
+N_CODE_MISSING|No operation code is set; commands at the box are not possible until "setup-code" is run at the serial console. Backups continue.
+N_SELFTEST_FAILED|First boot self-test: %s failures (run "selftest" at the serial console).
 N_TEST|Test message.
 # --- reasons (suspect and warning codes) ---
 R_SERVER_CLEAN_NO|the server's own verification failed (clean=no)
@@ -67,6 +73,7 @@ RUN_PARTIAL|transfer incomplete
 RUN_REJECTED_TREE|tree rejected (not a file or directory)
 RUN_TREE_MISMATCH|tree does not match the list
 RUN_VERIFY_FAILED|verification failed
+RUN_CLOCK_UNTRUSTED|clock not trusted, nothing taken
 # --- status ---
 S_IMAGE|Image built %s (%s ago)
 S_LAST_SOUND|Last sound generation: %s (%s ago)
@@ -85,7 +92,15 @@ S_CODE_SET|Operation code: set
 S_CODE_NONE|Operation code: not set (run "setup-code")
 S_CODE_LOCKED|Operation code: locked for %s more minutes
 S_QUEUE|Notifications waiting to be sent: %s
-S_SENSE|Disk voltage sense: %s
+S_DISK_CLOSED|Disk now: locked (not unlocked, not mounted)
+S_DISK_OPEN|Disk now: OPEN (unlocked or mounted)
+S_USB_RESET|Last USB reset of the bridge: %s
+S_CLOCK|Clock: %s
+CLOCK_OK|synchronised
+CLOCK_UNSYNCED|not synchronised
+CLOCK_JUMP|jumped recently
+CLOCK_DISAGREE|disagrees with network time
+CLOCK_EARLY|earlier than the image build
 T_HOURS|%s h
 T_DAYS|%s days
 # --- operation code ---
@@ -114,16 +129,14 @@ I_DISK_ON|Disk is on and mounted at %s; it switches off by itself in %s minutes 
 I_FIRST_FILL_STARTED|First fill started in the background; follow it with "status" (journal: purser-first-fill).
 E_DISK_OPEN|The disk is in use; run "disk-off" first.
 # --- self-test ---
-ST_TITLE|Hardware self-test
-ST_SENSE_OFF|voltage sense reads 0 with the relay off
-ST_SENSE_ON|voltage sense reads 1 with the relay on
+ST_TITLE|Self-test (disk on USB, link speed, SMART, network, clock)
 ST_DISK_SEEN|disk appears on USB
 ST_DISK_SEEN_USB|a USB disk appears (%s)
-ST_USB_SPEED|USB link speed %s Mbit/s (480 expected)
-ST_SENSE_DROP|voltage drops after the relay opens
-ST_LEDS|LEDs: green, red, both, off (watch them)
-ST_RTC|DS3231 at %s, %s s from system time
-ST_RTC_NONE|DS3231 not found on I2C (0x68)
+ST_USB_SPEED|USB link speed %s Mbit/s (480 or more expected)
+ST_SMART|SMART can be read through the USB-SATA bridge
+ST_NETWORK|network: default route, gate %s:%s answers
+ST_CLOCK|clock: %s
+ST_LED|Board LED: fast blinking for 3 seconds (watch it)
 ST_RESULT|Self-test finished, %s failures.
 # --- setup ---
 W_TITLE|NOQ Purser setup. Enter keeps the value in brackets.
@@ -133,11 +146,6 @@ W_PORT|Server gate port
 W_KINDS|Sources (type:dir ...)
 W_NIGHT|First question at (HH:MM)
 W_POLL_UNTIL|Stop asking at (HH:MM)
-W_RELAY|The relay will switch on for 3 seconds. Listen for the click and watch the disk LED.
-W_RELAY_OK|Did the relay click and the disk LED light, then go off
-W_RELAY_INVERTED|Trying again with inverted relay logic.
-E_RELAY|The relay does not behave; check its wiring and run setup again.
-W_SENSE_ZERO|Warning: the voltage sense did not read 1 while the relay was on.
 W_PUBKEY|Run this on the server (as root) to admit the box:
 P_ENTER|Press Enter when done: 
 E_GATE_UNREACHABLE|The gate %s:%s does not answer yet; run setup again later.

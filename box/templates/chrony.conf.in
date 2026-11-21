@@ -1,6 +1,6 @@
 # NOQ Purser (rendered by "purser apply-config"). Time comes from the router and/or a public
-# pool, never from the protected server. The boot service writes $RUN_DIR/chrony.d/step.conf:
-# with a readable DS3231 no step is allowed at all; without one a single step at start.
+# pool, never from the protected server. The boot service writes /run/purser/chrony.d/step.conf:
+# the board has no battery clock, so chrony may step during its first updates only, then refuses large changes.
 @NTP_SERVER_LINES@pool @NTP_POOL@ iburst maxsources 3
 driftfile /var/lib/chrony/chrony.drift
 include /run/purser/chrony.d/*.conf

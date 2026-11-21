@@ -1,7 +1,7 @@
 [Unit]
-Description=NOQ Purser boot: relay off, system clock from the DS3231
+Description=NOQ Purser boot: chrony step policy, board LED
 DefaultDependencies=no
-After=local-fs.target systemd-modules-load.service purser-gpio.service
+After=local-fs.target systemd-modules-load.service
 Before=chrony.service time-sync.target
 Wants=time-sync.target
 

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Hourly tick (LED, delay alarm, reminders, clock) and the status page of the console.
+# Hourly tick (LED, delay alarm, reminders, clock, disk left open) and the console status page.
 
 image_built() { kv_get "$IMAGE_RELEASE" BUILD_DATE; }
 
@@ -12,15 +12,16 @@ last_sound_age_h() {
 led_update() {
   local result age
   result=$(kv_get "$ST_LAST_RUN" result)
-  if ! age=$(last_sound_age_h); then led_set both; return 0; fi
-  if [ -s "$ST_SUSPECT_FLAG" ]; then led_set red; return 0; fi
+  if ! age=$(last_sound_age_h); then led_show setup; return 0; fi
+  if [ -s "$ST_SUSPECT_FLAG" ]; then led_show alarm; return 0; fi
   case $result in
-    list_rejected|rejected_tree|tree_mismatch|verify_failed|disk_error|disk_full|list_fetch_failed) led_set red; return 0 ;;
+    list_rejected|rejected_tree|tree_mismatch|verify_failed|disk_error|disk_full|list_fetch_failed) led_show alarm; return 0 ;;
   esac
-  if [ "$age" -ge "$LATE_H" ] || [ "$result" = uyari ] || [ "$result" = partial ] || [ "$result" = no_generation ]; then
-    led_set red-blink
+  if [ "$age" -ge "$LATE_H" ] || [ "$result" = uyari ] || [ "$result" = partial ] || [ "$result" = no_generation ] \
+     || [ "$result" = clock_untrusted ]; then
+    led_show warn
   else
-    led_set green
+    led_show ok
   fi
 }
 
@@ -32,36 +33,52 @@ tick() {
     [ "$(cat "$ST_TIMER_OFF_SENT" 2>/dev/null)" = "$(today)" ] || {
       notify timer_off high N_TIMER_OFF; today > "$ST_TIMER_OFF_SENT"; }
   fi
-  local s age built
+  local s age built c
+  c=$(clock_check)
   s=$(cat "$ST_LAST_SOUND" 2>/dev/null || true)
-  if age=$(last_sound_age_h) && [ "$age" -ge "$LATE_H" ]; then
+  # the delay alarm needs a clock it can believe
+  if [ "$c" = ok ] && age=$(last_sound_age_h) && [ "$age" -ge "$LATE_H" ]; then
     [ "$(cat "$ST_LATE_SENT" 2>/dev/null)" = "$s" ] || { notify late high N_LATE "$age"; echo "$s" > "$ST_LATE_SENT"; }
   fi
   built=$(image_built)
   if [[ $built =~ ^[0-9]+$ ]] && [ $(( ( $(now) - built ) / 86400 )) -ge "$IMAGE_MAX_DAYS" ] && due_once image_age $(( 30 * 86400 )); then
     notify image_age default N_IMAGE_AGE "$(( ( $(now) - built ) / 86400 / 30 ))"
   fi
-  clock_check
+  if ! code_is_set && [ "$(kv_get "$ST_SETUP" state)" = "done" ] && due_once code_missing $(( 7 * 86400 )); then
+    notify code_missing default N_CODE_MISSING
+  fi
+  disk_left_open
   led_update
 }
 
-# Network time that disagrees with the box clock by more than CLOCK_JUMP_MAX is not taken
-# (chrony: no step after start, maxchange); the alarm tells someone it is happening.
-clock_check() {
-  command -v chronyc >/dev/null 2>&1 || return 0
-  local worst
-  worst=$(chronyc -c sourcestats 2>/dev/null | awk -F, '{ o = $7 + 0; if (o < 0) o = -o; if (o > m) m = o } END { printf "%d", m }')
-  [[ $worst =~ ^[0-9]+$ ]] || return 0
-  if [ "$worst" -gt "$CLOCK_JUMP_MAX" ] && due_once clock_jump 86400; then
-    notify clock_jump high N_CLOCK_JUMP "$(( worst / 60 ))"
-  fi
-  # keep the DS3231 right while network time agrees with it
-  if [ "$worst" -lt 5 ] && chronyc -c tracking 2>/dev/null | awk -F, '$NF != "Not synchronised" { f = 1 } END { exit !f }' \
-     && due_once rtc_write 86400; then
-    local rtc; rtc=$(rtc_device 2>/dev/null || true)
-    [ -n "$rtc" ] && [ "$(gpio_mode)" != sim ] && hwclock --systohc -f "$rtc" 2>/dev/null || true
-  fi
-  return 0
+# Outside a job and outside a "disk-on" session the disk is closed. If it is not, close it.
+disk_left_open() {
+  disk_is_open || return 0
+  ( flock -n 9 || exit 1 ) 9>"$LOCK_FILE" || return 0
+  if systemd_up && systemctl -q is-active purser-disk-off.timer 2>/dev/null; then return 0; fi
+  log "disk found open outside a job; closing it"
+  disk_close || true
+}
+
+# One look at the clock (see clock_state in hw.sh); alarms at most once a day per kind.
+clock_check() {   # prints the state
+  local c
+  c=$(clock_state)
+  case $c in
+    ok) rm -f "$ST_CLOCK_SENT" ;;
+    *)  if [ "$(cat "$ST_CLOCK_SENT" 2>/dev/null)" != "$c $(today)" ]; then
+          clock_notify "$c"; echo "$c $(today)" > "$ST_CLOCK_SENT"
+        fi ;;
+  esac
+  echo "$c"
+}
+clock_notify() {   # clock_notify <state>
+  case $1 in
+    jump) notify clock_jump high N_CLOCK_JUMP "$(( $(awk '{ print $2 }' "$RUN_DIR/clock.jump" 2>/dev/null || echo 0) / 60 ))" ;;
+    disagree) notify clock_jump high N_CLOCK_DISAGREE "$(( $(chrony_worst_offset) / 60 ))" ;;
+    unsynced) notify clock_unsynced default N_CLOCK_UNSYNCED ;;
+    early) notify clock_unsynced high N_CLOCK_EARLY ;;
+  esac
 }
 
 ago() {   # ago <epoch> -> "N h" / "N days"
@@ -70,7 +87,8 @@ ago() {   # ago <epoch> -> "N h" / "N days"
 }
 
 cmd_status() {
-  local s v built r id at used total suspects pending f
+  local s v built r id at used total suspects pending f c
+  c=$(clock_state)
   say "NOQ Purser $PURSER_VERSION"
   built=$(image_built)
   if [[ $built =~ ^[0-9]+$ ]]; then say "$(msg S_IMAGE "$(date -u -d "@$built" +%F)" "$(ago "$built")")"; fi
@@ -108,5 +126,8 @@ cmd_status() {
     v=$(code_locked_for); if [ "$v" -gt 0 ]; then say "$(msg S_CODE_LOCKED "$(( (v + 59) / 60 ))")"; else say "$(msg S_CODE_SET)"; fi
   else say "$(msg S_CODE_NONE)"; fi
   [ -s "$ST_NOTIFY_QUEUE" ] && say "$(msg S_QUEUE "$(wc -l < "$ST_NOTIFY_QUEUE")")"
-  say "$(msg S_SENSE "$(sense_get)")"
+  if disk_is_open; then say "$(msg S_DISK_OPEN)"; else say "$(msg S_DISK_CLOSED)"; fi
+  v=$(kv_get "$ST_MAINT" usb_reset_at)
+  [[ $v =~ ^[0-9]+$ ]] && say "$(msg S_USB_RESET "$(date -d "@$v" '+%F %H:%M')")"
+  say "$(msg S_CLOCK "$(msg "CLOCK_${c^^}")")"
 }

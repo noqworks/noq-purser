@@ -1,6 +1,6 @@
 [Unit]
-Description=NOQ Purser hourly check (LED, delay alarm, clock, reminders)
-After=purser-boot.service purser-gpio.service
+Description=NOQ Purser hourly check (board LED, delay alarm, clock, reminders, disk left open)
+After=purser-boot.service chrony.service
 
 [Service]
 Type=oneshot

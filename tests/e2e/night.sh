@@ -1,17 +1,19 @@
 #!/bin/bash
 # End to end: real gate (sshd + purser-gate + rrsync), real purser-source, real box core with
-# the systemd-run sandbox, real btrfs; relay and LUKS simulated.
+# the systemd-run sandbox, real btrfs; LUKS and the box's sysfs simulated.
 . /src/tests/lib/assert.sh
 . /src/tests/lab/data.sh
 bash /src/tests/lab/setup.sh reset-all >/dev/null
 conf() { sed -i "/^$1=/d" /etc/purser/purser.conf; echo "$1=\"$2\"" >> /etc/purser/purser.conf; }
 conf KEEP_DAILY 4
-P=/usr/local/sbin/purser
+P=purser_lab
 M=/srv/purser
 G=$M/nesil
 last() { sed -n 's/^result=//p' /var/lib/purser/last-run; }
-mount_disk() { /run/sim/on-relay 1; echo 1 > /run/sim/relay; mount /run/sim/by-uuid/test-0001 $M; }
-umount_disk() { umount $M; /run/sim/on-relay 0; echo 0 > /run/sim/relay; }
+mount_disk() { mount "$(cat /run/sim/loopdev)" $M; }
+umount_disk() { umount $M; }
+locked() { ! mountpoint -q $M && [ ! -e /run/sim/mapper/purser ]; }
+opens() { cat /run/sim/luks-opens 2>/dev/null || echo 0; }
 ids=(2026-02-04T03-10Z 2026-02-05T03-10Z 2026-02-06T03-10Z 2026-02-07T03-10Z 2026-02-08T03-10Z 2026-02-09T03-10Z 2026-02-10T03-10Z)
 
 src_init
@@ -19,7 +21,7 @@ publish_generation "${ids[0]}"
 $P run > /run/purser-test/n1.log 2>&1; rc=$?
 eq "night 1 exits 0" 0 "$rc"
 eq "night 1 result" tamam "$(last)"
-eq "relay off after the window" 0 "$(cat /run/sim/relay)"
+ok "disk locked after the window (no mapper, no mount)" locked
 ok "ack written on the server" grep -q '^tamam ' "/srv/server/ack/${ids[0]}"
 eq "last published" "${ids[0]}" "$(cat /var/lib/purser/son-yayin)"
 eq "last sound" "${ids[0]}" "$(cat /var/lib/purser/son-saglam)"
@@ -46,10 +48,10 @@ eq "published tree matches its list" 0 "$cmp_ok"
 umount_disk
 
 # no new generation: the disk is never powered, a notification goes out
-ons=$(cat /run/sim/relay-ons)
+ons=$(opens)
 $P run > /run/purser-test/n-none.log 2>&1
 eq "no generation: result" no_generation "$(last)"
-eq "no generation: disk never powered" "$ons" "$(cat /run/sim/relay-ons)"
+eq "no generation: LUKS never opened" "$ons" "$(opens)"
 ok "no generation: notified" grep -q 'produced no generation' /run/purser-test/notify.log
 
 # pending acknowledgement: the gate cannot write it, the next night sends it first
@@ -72,12 +74,13 @@ eq "fault: result" tamam "$(last)"
 
 # interrupted transfer: the half-filled staging area is kept and completed the next night
 id=2026-02-14T03-10Z; night_activity 20260214 6
-head -c 24M /dev/urandom > /srv/src/dumps/big-20260214.bin
+head -c 32M /dev/urandom > /srv/src/dumps/big-20260214.bin
 publish_generation "$id"
 conf RSYNC_BWLIMIT 2000
 ( $P run >/dev/null 2>&1 ) & bg=$!
-for _ in $(seq 1 40); do sleep 0.5; [ -d $M/hazirlik ] && [ -n "$(find $M/hazirlik/dumps -name '*.purser-partial*' -o -name 'big-*' 2>/dev/null | head -1)" ] && break; done
-sleep 2; systemctl kill --signal=KILL 'run-*.service' >/dev/null 2>&1 || true
+# rsync writes the file under a temporary name (.big-...) while it is being transferred
+for _ in $(seq 1 60); do sleep 0.5; [ -n "$(find $M/hazirlik/dumps -name '.big-*' 2>/dev/null | head -1)" ] && break; done
+sleep 1; systemctl kill --signal=KILL 'run-*.service' >/dev/null 2>&1 || true
 wait $bg
 eq "interrupted: result partial" partial "$(last)"
 sed -i '/^RSYNC_BWLIMIT=/d' /etc/purser/purser.conf

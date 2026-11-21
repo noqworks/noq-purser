@@ -7,8 +7,8 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=""
-PACKAGES=(rsync openssh-client openssh-server btrfs-progs cryptsetup-bin sg3-utils curl ca-certificates nftables chrony
-          i2c-tools gpiod util-linux util-linux-extra argon2 smartmontools kmod)
+PACKAGES=(rsync openssh-client openssh-server btrfs-progs cryptsetup-bin curl ca-certificates nftables chrony
+          util-linux util-linux-extra argon2 smartmontools kmod udev)
 case ${1:-} in
   --packages) printf '%s\n' "${PACKAGES[@]}"; exit 0 ;;
   --root) ROOT=$(readlink -f "${2:?image root}") ;;
@@ -32,7 +32,7 @@ install -m 0644 "$HERE"/messages/en "$HERE"/messages/tr "$LIB/messages/"
 install -m 0644 "$HERE"/templates/*.in "$LIB/templates/"
 install -m 0644 "$HERE/purser.conf.example" "$LIB/purser.conf.example"
 install -m 0755 "$HERE/purser-verify" "$LIB/purser-verify"
-install -m 0755 "$HERE/purser" "$HERE/purser-console" "$HERE/purser-gpio" "$ROOT/usr/local/sbin/"
+install -m 0755 "$HERE/purser" "$HERE/purser-console" "$ROOT/usr/local/sbin/"
 install -m 0755 "$HERE/../image/purser-card-migrate" "$ROOT/usr/local/sbin/" 2>/dev/null || true
 install -m 0644 "$HERE"/systemd/*.service "$HERE"/systemd/*.timer "$ROOT/etc/systemd/system/"
 install -d "$ROOT/etc/udev/rules.d" "$ROOT/etc/modprobe.d"
@@ -51,11 +51,11 @@ printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty -n -l /usr/local/sbin/pur
   > "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d/purser.conf"
 
 if [ -n "$ROOT" ]; then
-  systemctl --root="$ROOT" enable purser-boot.service purser-gpio.service purser-firstboot.service serial-getty@ttyS0.service >/dev/null
+  systemctl --root="$ROOT" enable purser-boot.service purser-firstboot.service serial-getty@ttyS0.service >/dev/null
   systemctl --root="$ROOT" disable ssh.service ssh.socket >/dev/null 2>&1 || true
   systemctl --root="$ROOT" mask ssh.service getty@tty1.service >/dev/null 2>&1 || true
 else
   systemctl daemon-reload
-  systemctl enable purser-boot.service purser-gpio.service purser-firstboot.service >/dev/null
+  systemctl enable purser-boot.service purser-firstboot.service >/dev/null
   echo "Installed. Next: purser setup (on the serial console), or reboot to run the first-boot service."
 fi

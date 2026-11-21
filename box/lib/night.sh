@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # The nightly window. Success means: a new generation was checked, verified, published and the
-# disk was switched off. Re-processing, sending a pending ack or a partial transfer is not success.
+# disk was locked again. Re-processing, sending a pending ack or a partial transfer is not success.
+#
+#   clock check -> pending ack -> ask "latest" (disk locked) -> fetch + check the list (disk locked)
+#   -> find the USB disk -> LUKS open -> mount -> sync -> verify -> publish -> retention
+#   -> maintenance -> unmount -> LUKS close -> ack -> alarm if needed
 
 record_run() {   # record_run <result> [id] [bytes] [seconds] [detail]
   printf 'result=%s\nid=%s\nbytes=%s\nseconds=%s\ndetail=%s\nat=%s\n' \
@@ -41,6 +45,14 @@ night_run() {   # night_run [first-fill]
   FIRST_FILL=${1:-}
   take_lock
   if disk_is_open; then disk_close || true; fi
+  # Without a clock it can believe the box takes nothing tonight (and does not ask the server).
+  local clock
+  clock=$(clock_check)
+  if [ "$clock" != ok ]; then
+    record_run clock_untrusted "" "" "" "$clock"
+    notify clock_untrusted high N_CLOCK_UNTRUSTED "$(msg "CLOCK_${clock^^}")"
+    led_update; return 0
+  fi
   send_pending_ack
   paused_report
 
@@ -52,7 +64,7 @@ night_run() {   # night_run [first-fill]
     led_update; return 0
   fi
 
-  # The list is fetched and checked before the disk gets power.
+  # The list is fetched and checked while the disk is still locked.
   w=$RUN_DIR/work; rm -rf "$w"; install -d -m 0755 "$w"
   install -d -o "$RSYNC_USER" -g "$RSYNC_USER" -m 0755 "$INCOMING"
   find "$INCOMING" -mindepth 1 -delete
@@ -220,10 +232,10 @@ publish_recover() {   # finish renaming the audit files of a published generatio
   return 0
 }
 
-# After publishing: long-retention copy, retention, maintenance, disk off, state, ack, alarm.
+# After publishing: long-retention copy, retention, maintenance, disk locked, state, ack, alarm.
 # Everything is read back from the meta file so an interrupted run resumes here.
 finish() {   # <id> <start>
-  local id=$1 start=$2 bytes warn suspect powered_off=1 verdict=tamam gb min left
+  local id=$1 start=$2 bytes warn suspect closed=1 verdict=tamam gb min left
   bytes=$(kv_get "$AUDIT/meta/$id" "$META_BYTES")
   warn=$(sed -n "s/^$META_WARN=\(..*\)/\1/p" "$AUDIT/meta/$id")
   suspect=$(sed -n "s/^$META_SUSPECT=\(..*\)/\1/p" "$AUDIT/meta/$id")
@@ -234,7 +246,7 @@ finish() {   # <id> <start>
   maintenance "$id" "$left"
   disk_usage_record
   cache_suspects
-  disk_close || powered_off=0
+  disk_close || closed=0
   echo "$id" > "$ST_LAST_PUBLISHED"
   if [ -n "$(uncleared_suspects_cached)" ]; then uncleared_suspects_cached | head -1 > "$ST_SUSPECT_FLAG"
   else rm -f "$ST_SUSPECT_FLAG"; kv_set "$ST_MAINT" paused_since ""; echo "$id" > "$ST_LAST_SOUND"; fi
@@ -243,7 +255,7 @@ finish() {   # <id> <start>
   remote ack "$id" "$verdict" >/dev/null 2>&1 || echo "$id $verdict" > "$ST_PENDING_ACK"
   gb=$(human_gb "$bytes"); min=$(( ( $(now) - start + 59 ) / 60 ))
   local tail_key=N_TAIL_NONE
-  [ $powered_off = 1 ] && tail_key=N_TAIL_DISK_OFF
+  [ $closed = 1 ] && tail_key=N_TAIL_DISK_LOCKED
   record_run "$verdict" "$id" "$bytes" "$(( $(now) - start ))" "$(printf "%s %s" "$suspect" "$warn" | tr "\n" " ")"
   if [ -n "$suspect" ]; then
     notify suspect urgent N_SUSPECT "$id" "$(reasons_text "$suspect")" "$(msg "$tail_key")"

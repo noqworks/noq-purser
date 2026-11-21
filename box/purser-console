@@ -17,8 +17,8 @@ help() {
 Komutlar:
   status            durum
   clear <kimlik>    şüpheyi kaldır (kod)       pin <kimlik>   nesli sabitle (kod)
-  disk-on           diski elle aç (kod)        disk-off       diski kapat
-  first-fill        ilk dolum (kod)            selftest       donanım öz sınaması
+  disk-on           diski elle aç (kod)        disk-off       diski kilitle
+  first-fill        ilk dolum (kod)            selftest       öz sınama
   setup             kurulum sihirbazı          setup-code     ilk işlem kodunu üret
   new-code          yeni işlem kodu (kod)      reset-code     kodu sıfırla (her zaman bildirilir)
   notify-test       deneme bildirimi           shell          bakım kabuğu (kod, bildirilir)
@@ -29,8 +29,8 @@ T
 Commands:
   status            state of the box
   clear <id>        clear a suspect (code)    pin <id>       pin a generation (code)
-  disk-on           power the disk by hand (code)  disk-off  power it off
-  first-fill        first fill (code)         selftest       hardware self-test
+  disk-on           unlock + mount the disk (code)  disk-off  lock it again
+  first-fill        first fill (code)         selftest       self-test
   setup             setup wizard              setup-code     create the first operation code
   new-code          new operation code (code) reset-code     reset the code (always notified)
   notify-test       test notification         shell          maintenance shell (code, notified)

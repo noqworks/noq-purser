@@ -1,6 +1,6 @@
 [Unit]
 Description=NOQ Purser nightly window (ask, fetch, verify, publish)
-After=network-online.target purser-boot.service chrony.service purser-gpio.service
+After=network-online.target purser-boot.service chrony.service
 Wants=network-online.target
 ConditionPathExists=/etc/purser/purser.conf
 

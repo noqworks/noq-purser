@@ -3,25 +3,29 @@ USAGE|kullanım: purser run [--first-fill] | tick | boot | firstboot | apply-con
 ERR_CONFIG_MISSING|Yapılandırma eksik: %s (seri konsolda "setup" çalıştır).
 ERR_BUSY|Başka bir purser işi sürüyor.
 # --- bildirimler ---
-N_NO_GENERATION|Sunucu bu gece nesil üretmedi. Son sağlam yedek: %s. Disk hiç açılmadı.
+N_NO_GENERATION|Sunucu bu gece nesil üretmedi. Son sağlam yedek: %s. Disk kilitli kaldı.
 N_LIST_FETCH|%s neslinin listesini alamadım.
 N_LIST_REJECTED|Sunucunun %s listesinde kurala uymayan satır var (%s); bu nesli almadım.
-N_TREE_TYPE|%s neslinde dosya ya da dizin olmayan bir şey geldi; nesli almadım. Diski çıkardım.
-N_TREE_MISMATCH|%s neslinin ağacı listeyle tutmuyor; yayımlamadım. Diski çıkardım.
-N_VERIFY_FAILED|%s neslinin geri okuma doğrulaması tutmadı; yayımlamadım. Diski çıkardım.
-N_NO_TIME|Pencerede %s için süre kalmadı; sonraki gece sürer. Diski çıkardım.
-N_PARTIAL|%s dakika doldu, aktarım bitmedi; kalanını sonraki gece alırım. Diski çıkardım.
+N_TREE_TYPE|%s neslinde dosya ya da dizin olmayan bir şey geldi; nesli almadım. Diski kilitledim.
+N_TREE_MISMATCH|%s neslinin ağacı listeyle tutmuyor; yayımlamadım. Diski kilitledim.
+N_VERIFY_FAILED|%s neslinin geri okuma doğrulaması tutmadı; yayımlamadım. Diski kilitledim.
+N_NO_TIME|Pencerede %s için süre kalmadı; sonraki gece sürer. Diski kilitledim.
+N_PARTIAL|%s dakika doldu, aktarım bitmedi; kalanını sonraki gece alırım. Diski kilitledim.
 N_DONE|Bu gece yedeği aldım, %s GB, %s dakika.%s
 N_WARNING|Bu gece yedeği aldım, %s GB, %s dakika. Uyarı: %s. Sakladım; şüpheli saymadım.%s
 N_SUSPECT|Bu geceki yedek (%s) şüpheli: %s. Sakladım, işaretledim, silmeyi durdurdum.%s
-N_TAIL_DISK_OFF| Diski çıkardım.
+N_TAIL_DISK_LOCKED| Diski kilitledim.
 N_TAIL_NONE|
 N_DISK_FULL|Disk doldu; yeni nesil almadım. Şüpheli varken eski nesillerin hiçbiri silinmez.
 N_DELETION_PAUSED|Silme %s gündür duruyor. Şüpheyi kaldırmak için kutunun başına gelmen gerek.
 N_LATE|Son sağlam yedek %s saat önce.
-N_CLOCK_JUMP|Ağdan gelen saat kutunun saatinden %s dakika farklı; kabul etmedim.
-N_DISK_NOT_SEEN|Disk enerjilendi ama USB'de görünmedi.
-N_POWER_NOT_OFF|Diski kapattım ama gerilim düşmedi.
+N_CLOCK_JUMP|Kutunun saati %s dakika sıçradı; saat oturana kadar nesil almıyorum.
+N_CLOCK_DISAGREE|Ağdan gelen saat kutunun saatinden %s dakika farklı; kabul etmedim.
+N_CLOCK_UNSYNCED|Kutunun saati ağ saatiyle eşit değil.
+N_CLOCK_EARLY|Kutunun saati imajın üretim tarihinden önce gösteriyor; yanlış.
+N_CLOCK_UNTRUSTED|Bu gece nesil almadım: saate güvenilmiyor (%s). Disk kilitli kaldı.
+N_DISK_NOT_SEEN|Disk USB'de görünmüyor ya da okunmuyor; köprüyü bir kez USB'den yeniden başlattım, yine olmadı. Kabloyu denetle.
+N_DISK_NOT_CLOSED|Disk kilitlenemedi (hâlâ bağlı ya da şifresi açık). Konsolda "status" ile bak.
 N_IMAGE_AGE|SD kart imajı %s aylık oldu; yenisini tak.
 N_TIMER_OFF|Gece işi kapalı (purser.timer); açılana kadar yedek almıyorum.
 N_CODE_LOCKED|İşlem kodu %s kez yanlış girildi; konsol %s dakika kilitli.
@@ -34,6 +38,8 @@ N_SCRUB_ERRORS|btrfs scrub hata buldu: %s
 N_SCAN_MISMATCH|Tam tarama: %s neslinde listeyle tutmayan %s dosya var (disk bozulması?).
 N_BOX_READY|Kutu açıldı: NOQ Purser %s, son nesil %s.
 N_SETUP_WAITING|Kurulum seri konsolda bekliyor: %s
+N_CODE_MISSING|İşlem kodu yok; seri konsolda "setup-code" çalıştırılana kadar kutunun başındaki komutlar kullanılamaz. Yedekler sürüyor.
+N_SELFTEST_FAILED|İlk açılış öz sınaması: %s hata (seri konsolda "selftest" çalıştır).
 N_TEST|Deneme mesajı.
 # --- nedenler (şüphe ve uyarı kodları) ---
 R_SERVER_CLEAN_NO|sunucunun kendi doğrulaması başarısız (clean=no)
@@ -67,6 +73,7 @@ RUN_PARTIAL|aktarım yarım kaldı
 RUN_REJECTED_TREE|ağaç reddedildi (dosya ya da dizin olmayan öğe)
 RUN_TREE_MISMATCH|ağaç listeyle tutmuyor
 RUN_VERIFY_FAILED|doğrulama tutmadı
+RUN_CLOCK_UNTRUSTED|saate güvenilmedi, nesil alınmadı
 # --- durum ---
 S_IMAGE|İmaj %s tarihli (%s önce)
 S_LAST_SOUND|Son sağlam nesil: %s (%s önce)
@@ -85,7 +92,15 @@ S_CODE_SET|İşlem kodu: kayıtlı
 S_CODE_NONE|İşlem kodu: yok ("setup-code" çalıştır)
 S_CODE_LOCKED|İşlem kodu: %s dakika daha kilitli
 S_QUEUE|Gönderilmeyi bekleyen bildirim: %s
-S_SENSE|Disk gerilim ölçümü: %s
+S_DISK_CLOSED|Disk şu an: kilitli (şifresi kapalı, bağlı değil)
+S_DISK_OPEN|Disk şu an: AÇIK (şifresi açık ya da bağlı)
+S_USB_RESET|Köprünün son USB yeniden başlatması: %s
+S_CLOCK|Saat: %s
+CLOCK_OK|eşit
+CLOCK_UNSYNCED|eşit değil
+CLOCK_JUMP|az önce sıçradı
+CLOCK_DISAGREE|ağ saatiyle uyuşmuyor
+CLOCK_EARLY|imaj tarihinden önce
 T_HOURS|%s saat
 T_DAYS|%s gün
 # --- işlem kodu ---
@@ -114,16 +129,14 @@ I_DISK_ON|Disk açık, %s altında bağlı; %s dakikada kendiliğinden kapanır 
 I_FIRST_FILL_STARTED|İlk dolum arka planda başladı; "status" ile izle (günlük: purser-first-fill).
 E_DISK_OPEN|Disk kullanımda; önce "disk-off" çalıştır.
 # --- öz sınama ---
-ST_TITLE|Donanım öz sınaması
-ST_SENSE_OFF|röle kapalıyken gerilim ölçümü 0
-ST_SENSE_ON|röle açıkken gerilim ölçümü 1
+ST_TITLE|Öz sınama (USB'de disk, bağlantı hızı, SMART, ağ, saat)
 ST_DISK_SEEN|disk USB'de görünüyor
 ST_DISK_SEEN_USB|bir USB disk görünüyor (%s)
-ST_USB_SPEED|USB bağlantı hızı %s Mbit/s (480 beklenir)
-ST_SENSE_DROP|röle açılınca gerilim düşüyor
-ST_LEDS|LED'ler: yeşil, kırmızı, ikisi, sönük (izle)
-ST_RTC|DS3231 %s üzerinde, sistem saatinden %s sn farklı
-ST_RTC_NONE|DS3231 I2C'de bulunamadı (0x68)
+ST_USB_SPEED|USB bağlantı hızı %s Mbit/s (en az 480 beklenir)
+ST_SMART|SMART USB-SATA köprüsünden okunuyor
+ST_NETWORK|ağ: varsayılan yol var, kapı %s:%s yanıt veriyor
+ST_CLOCK|saat: %s
+ST_LED|Kart LED'i: 3 saniye hızlı yanıp söner (izle)
 ST_RESULT|Öz sınama bitti, %s hata.
 # --- kurulum ---
 W_TITLE|NOQ Purser kurulumu. Enter köşeli parantezdeki değeri korur.
@@ -133,11 +146,6 @@ W_PORT|Sunucu kapısının portu
 W_KINDS|Kaynaklar (tür:dizin ...)
 W_NIGHT|İlk soru saati (SS:DD)
 W_POLL_UNTIL|Sormayı bırakma saati (SS:DD)
-W_RELAY|Röle 3 saniye açılacak. Tık sesini dinle, disk LED'ini izle.
-W_RELAY_OK|Röle tıkladı, disk LED'i yanıp sonra söndü mü
-W_RELAY_INVERTED|Ters röle mantığıyla yeniden deniyorum.
-E_RELAY|Röle beklendiği gibi çalışmıyor; bağlantısını denetle, kurulumu yeniden çalıştır.
-W_SENSE_ZERO|Uyarı: röle açıkken gerilim ölçümü 1 okumadı.
 W_PUBKEY|Kutuyu kabul etmek için sunucuda (root olarak) şunu çalıştır:
 P_ENTER|Bitince Enter: 
 E_GATE_UNREACHABLE|%s:%s kapısı henüz yanıt vermiyor; kurulumu sonra yeniden çalıştır.

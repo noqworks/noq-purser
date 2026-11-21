@@ -74,7 +74,8 @@ night_activity() {   # night_activity <YYYYMMDD> <dow>
     pg_full "${day}-020500F"
     # expire: the old full with its diffs, and the WAL before the new full
     find "$S/pgdemo/backup/demo" -mindepth 1 -maxdepth 1 -type d -name "${full}*" -exec rm -rf {} +
-    ls "$S/pgdemo/archive/demo/16-1/0000000100000000/" | sort | head -2 | while read -r f; do rm -f "$S/pgdemo/archive/demo/16-1/0000000100000000/$f"; done
+    find "$S/pgdemo/archive/demo/16-1/0000000100000000/" -type f -printf '%f\n' | sort | head -2 \
+      | while read -r f; do rm -f "$S/pgdemo/archive/demo/16-1/0000000100000000/$f"; done
     rm -f "$S/borgdemo/data/0/$(find "$S/borgdemo/data/0" -type f -printf "%f\n" | sort -n | head -1)"
     rm -f "$(find "$S/resticdemo/data" -type f | sort | head -1)"
   else

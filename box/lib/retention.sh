@@ -16,13 +16,33 @@ deletion_paused() { [ -n "$(uncleared_suspects | head -1)" ]; }
 
 # Weekly/monthly copies are cut from the first generation on or after the long-retention day
 # of each week (the day the weekly full backup exists).
+#
+# Retention never trusts a date. Generation ids come from the server and the box clock comes
+# from the network, so both may lie; what cannot lie is how many nights the box has published.
+# A weekly cut therefore also needs LONG_MIN_NIGHTS published generations since the previous
+# cut, and a monthly pick needs MONTHLY_MIN_WEEKS weekly cuts since the previous pick. Forged
+# dates can only make the box keep history longer, never delete it faster.
+published_since() {   # published_since <id|""> -> generations published after that id
+  find "$AUDIT/meta" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | grep -E "$ID_RE" \
+    | awk -v a="$1" '$0 > a' | awk 'END { print NR }'
+}
 long_cut_due() {   # long_cut_due <id>
-  local id=$1 d back ref
+  local id=$1 d back ref newest
   d=$(id_dow "$id")
   back=$(( (d - LONG_DOW + 7) % 7 ))
   ref=$(date -u -d "${id:0:10} -$back days" +%F)
   [ -e "$GEN_DIR/uzun-$id" ] && return 1
+  newest=$(generations 'uzun-*' | tail -1); newest=${newest#uzun-}
+  if [ -n "$newest" ] && [ "$(published_since "$newest")" -lt "$LONG_MIN_NIGHTS" ]; then return 1; fi
   ! generations 'uzun-*' | awk -v r="uzun-$ref" '$0 >= r { f = 1 } END { exit !f }'
+}
+
+# Monthly copies: the first weekly copy of each month, at least MONTHLY_MIN_WEEKS weekly copies
+# after the previous monthly one.
+monthly_picks() {
+  generations 'uzun-*' | awk -v gap="$MONTHLY_MIN_WEEKS" '
+    { m = substr($0, 6, 7)
+      if (last == "" || (m != lastm && NR - last >= gap)) { print; last = NR; lastm = m } }'
 }
 
 # The privileged part only snapshots and flips the read-only flag; pruning inside the copy is
@@ -46,7 +66,7 @@ pinned() { find "$AUDIT/pin" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' 2>/d
 retention_keep() {
   { generations 'gen-*' | tail -n "$KEEP_DAILY"
     generations 'uzun-*' | tail -n "$KEEP_WEEKLY"
-    generations 'uzun-*' | awk '{ m = substr($0, 6, 7); if (!(m in s)) { s[m] = 1; print } }' | tail -n "$KEEP_MONTHLY"
+    monthly_picks | tail -n "$KEEP_MONTHLY"
     pinned | sed 's/^/gen-/'; pinned | sed 's/^/uzun-/'
     generations 'gen-*' | tail -1; } | LC_ALL=C sort -u
 }

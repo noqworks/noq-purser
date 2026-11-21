@@ -1,6 +1,6 @@
 [Unit]
 Description=NOQ Purser first boot (keys, configuration, adopted disk)
-After=network-online.target purser-boot.service purser-gpio.service
+After=network-online.target purser-boot.service chrony.service
 Wants=network-online.target
 ConditionPathExists=!/var/lib/purser/setup.done
 

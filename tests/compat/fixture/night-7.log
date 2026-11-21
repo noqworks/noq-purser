@@ -1,0 +1,7 @@
+/usr/local/sbin/purser-gate: line 19: /srv/server/ack/.contact.tmp: Permission denied
+/usr/local/sbin/purser-gate: line 19: /srv/server/ack/.contact.tmp: Permission denied
+purser: şüpheli var, silme duruyor
+/old/purser-v0: line 90: /sys/block/loop14/device/delete: No such file or directory
+/usr/local/sbin/purser-gate: line 19: /srv/server/ack/.contact.tmp: Permission denied
+/usr/local/sbin/purser-gate: line 32: /srv/server/ack/2026-01-07T03-10Z: Permission denied
+purser: Bu gece yedeği aldım, 0,0 GB, 1 dakika. Diski çıkardım.

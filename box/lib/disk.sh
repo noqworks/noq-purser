@@ -1,22 +1,59 @@
 # shellcheck shell=bash
-# Disk power, LUKS and btrfs. The disk is energized only while this code needs it.
+# The disk: always attached, LUKS2 + btrfs. Outside the window it is locked and not mounted.
+#   open:  find the USB device -> (hung bridge: one USB reset) -> LUKS open -> mount
+#   close: sync -> unmount -> LUKS close -> check: no mapper, no mount
 
 disk_dev() { readlink -f "$BY_UUID_DIR/$LUKS_UUID" 2>/dev/null; }
 disk_present() { [ -n "$LUKS_UUID" ] && [ -e "$BY_UUID_DIR/$LUKS_UUID" ]; }
 disk_is_open() { mountpoint -q "$MNT" 2>/dev/null || [ -e "$MAPPER_DIR/$MAP" ]; }
+disk_is_closed() { ! disk_is_open; }
+
+# The device answers a small direct read within 20 s (a hung bridge does not).
+disk_readable() {
+  local dev; dev=$(disk_dev) || return 1
+  [ -b "$dev" ] || return 1
+  timeout 20 dd if="$dev" of=/dev/null bs=4096 count=1 iflag=direct status=none 2>/dev/null \
+    || timeout 20 dd if="$dev" of=/dev/null bs=4096 count=1 status=none 2>/dev/null
+}
+
+disk_wait() {   # disk_wait <seconds>: until the LUKS device is present and readable
+  local i
+  for (( i = 0; i < $1; i++ )); do disk_present && disk_readable && return 0; sleep 1; done
+  disk_present && disk_readable
+}
+
+# One software reset of the USB device(s) behind the disk, then wait again.
+disk_reset_bridge() {
+  local p ports=() did=0
+  p=$(cat "$ST_USB_PORT" 2>/dev/null || true)
+  [[ $p =~ ^[0-9]+-[0-9.]+$ ]] && ports+=("$p")
+  [ ${#ports[@]} -gt 0 ] || mapfile -t ports < <(usb_storage_ports)
+  for p in "${ports[@]}"; do usb_reset "$p" && did=1; done
+  kv_set "$ST_MAINT" usb_reset_at "$(now)"
+  [ $did = 1 ] || { log "no USB device could be reset"; return 1; }
+  settle
+  disk_wait "$DISK_WAIT"
+}
+
+disk_find() {   # 0 when the disk is present and readable; resets a hung bridge once
+  disk_wait "$DISK_WAIT" && return 0
+  log "disk $LUKS_UUID not present or not readable; resetting the USB bridge once"
+  if disk_reset_bridge; then
+    log "disk is back after the USB reset"
+    kv_set "$ST_MAINT" usb_reset_ok "$(now)"
+    return 0
+  fi
+  notify disk_not_seen urgent N_DISK_NOT_SEEN
+  return 1
+}
 
 disk_open() {
   need_config LUKS_UUID
-  local dev i
-  relay_set 1
-  for (( i = 0; i < DISK_WAIT; i++ )); do disk_present && break; sleep 1; done
-  if ! disk_present; then
-    relay_set 0
-    notify disk_not_seen high N_DISK_NOT_SEEN
-    return 1
-  fi
-  [ "$(sense_get)" = 1 ] || log "disk is visible but the voltage sense reads 0 (check the sense divider)"
+  local dev port
+  disk_find || return 1
   dev=$(disk_dev)
+  port=$(usb_port_of "$dev" 2>/dev/null || true)
+  [ -n "$port" ] && [ "$port" != "$(cat "$ST_USB_PORT" 2>/dev/null)" ] && echo "$port" > "$ST_USB_PORT"
   [ -e "$MAPPER_DIR/$MAP" ] || cryptsetup open --key-file "$LUKS_KEY" "$dev" "$MAP"
   install -d -m 0755 "$MNT"
   mountpoint -q "$MNT" || mount -o noatime "$MAPPER_DIR/$MAP" "$MNT"
@@ -25,24 +62,13 @@ disk_open() {
   disk_usage_record
 }
 
-# sync -> unmount -> close LUKS -> flush + stop + detach the USB device -> 5 s -> relay off.
-# Returns 0 only when the voltage sense actually reads 0 afterwards.
+# Returns 0 only when the disk is really closed afterwards (no mapper device, no mount).
 disk_close() {
-  local dev base
-  dev=$(disk_dev || true)
   sync
-  if mountpoint -q "$MNT" 2>/dev/null; then umount "$MNT"; fi
-  if [ -e "$MAPPER_DIR/$MAP" ]; then cryptsetup close "$MAP"; fi
-  if [ -n "$dev" ] && [ -b "$dev" ]; then
-    base=$(basename "$dev")
-    blockdev --flushbufs "$dev" 2>/dev/null || true
-    sg_start --stop "$dev" 2>/dev/null || true
-    [ -w "/sys/block/$base/device/delete" ] && echo 1 > "/sys/block/$base/device/delete" 2>/dev/null || true
-  fi
-  sleep "${DISK_SPINDOWN_WAIT:-5}"
-  relay_set 0
-  if ! wait_sense 0 5; then
-    notify power_not_off urgent N_POWER_NOT_OFF
+  if mountpoint -q "$MNT" 2>/dev/null; then umount "$MNT" || umount -l "$MNT" || true; fi
+  if [ -e "$MAPPER_DIR/$MAP" ]; then cryptsetup close "$MAP" || { sleep 3; cryptsetup close "$MAP"; } || true; fi
+  if ! disk_is_closed; then
+    notify disk_not_closed urgent N_DISK_NOT_CLOSED
     return 1
   fi
   return 0
@@ -56,7 +82,7 @@ disk_usage_record() {
   printf 'used=%s\ntotal=%s\nat=%s\n' "$used" "$total" "$(now)" > "$ST_DISK_USAGE"
 }
 
-# Monthly SMART reading through the USB-SATA bridge.
+# Monthly SMART reading through the USB-SATA bridge (SAT pass-through).
 smart_read() {
   local dev out health hours realloc pending life temp
   dev=$(disk_dev) || return 0

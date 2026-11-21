@@ -3,11 +3,12 @@
 #
 # Backward compatibility: every name in the "frozen" blocks below is read by boxes that are
 # already in service (disk layout, SD state files, users, nftables names). The names predate the
-# English code base; they are part of the format and do not change.
+# English code base; they are part of the format and do not change. purser.conf is sourced, so
+# keys an older release wrote and this one no longer knows are simply ignored.
 
 CONF=${PURSER_CONF:-/etc/purser/purser.conf}
 # shellcheck disable=SC2034
-PURSER_VERSION=1.0.0-rc1
+PURSER_VERSION=1.0.0
 
 load_config() {
   if [ -r "$CONF" ]; then
@@ -18,8 +19,6 @@ load_config() {
   : "${SERVER:=}" "${SERVER_PORT:=22}" "${SERVER_USER:=purser}" "${LUKS_UUID:=}"
   : "${MNT:=/srv/purser}" "${STATE:=/var/lib/purser}"
   : "${SSH_DIR:=/etc/purser/ssh}" "${LUKS_KEY:=/etc/purser/sirlar/luks.key}" "${NOTIFY:=/etc/purser/sirlar/bildirim}"
-  : "${GPIO_FIFO:=/run/purser/gpio}" "${GPIO_CHIP:=}" "${GPIO_BASE:=}"
-  : "${RELAY_LINE:=}" "${RELAY_ACTIVE_LOW:=0}" "${SENSE_LINE:=}" "${LED_G_LINE:=}" "${LED_R_LINE:=}"
   : "${POLL_UNTIL:=08:30}" "${POLL_EVERY:=300}" "${MAX_MIN:=80}" "${LONG_DOW:=7}"
   : "${KEEP_DAILY:=14}" "${KEEP_WEEKLY:=8}" "${KEEP_MONTHLY:=12}"
   : "${WARN_FACTOR:=3}" "${STALE_NIGHTS:=2}" "${LATE_H:=30}" "${KINDS:=}"
@@ -32,8 +31,9 @@ load_config() {
   : "${DNS_SERVERS:=1.1.1.1 9.9.9.9}" "${NTP_SERVERS:=}" "${NTP_POOL:=pool.ntp.org}" "${CLOCK_JUMP_MAX:=600}"
   : "${MAINT_SSH_FROM:=}" "${SERIAL_TTY:=ttyS0}" "${IMAGE_MAX_DAYS:=182}"
   : "${SCRUB_EVERY_DAYS:=30}" "${SMART_EVERY_DAYS:=30}" "${RESERVE_MIN:=10}"
-  : "${CODE_ATTEMPTS:=3}" "${SANDBOX:=systemd}" "${GPIO_MODE:=auto}" "${GPIO_CHIP_LABEL:=300b000.pinctrl}"
-  : "${SIM_DIR:=}" "${BY_UUID_DIR:=/dev/disk/by-uuid}" "${MAPPER_DIR:=/dev/mapper}" "${RUN_DIR:=/run/purser}"
+  : "${LONG_MIN_NIGHTS:=4}" "${MONTHLY_MIN_WEEKS:=3}"
+  : "${CODE_ATTEMPTS:=3}" "${SANDBOX:=systemd}" "${BOARD_LED:=auto}"
+  : "${SYS_DIR:=/sys}" "${DEV_DIR:=/dev}" "${BY_UUID_DIR:=/dev/disk/by-uuid}" "${MAPPER_DIR:=/dev/mapper}" "${RUN_DIR:=/run/purser}"
   : "${LOCK_FILE:=/run/purser.lock}" "${PURSER_BIN:=/usr/local/sbin/purser}" "${CONSOLE_UNIT:=}"
   : "${IMAGE_RELEASE:=$PURSER_LIB/image-release}"
   frozen_names
@@ -74,6 +74,8 @@ frozen_names() {
   ST_SMART=$STATE/smart.summary
   ST_SENT_PREFIX=$STATE/sent.
   ST_SETUP=$STATE/setup
+  ST_USB_PORT=$STATE/usb.port
+  ST_CLOCK_SENT=$STATE/clock.sent
   ID_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$'
 }
 

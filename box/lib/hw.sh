@@ -1,101 +1,145 @@
 # shellcheck shell=bash
-# Hardware: relay, voltage sense, LEDs, RTC, USB link.
-#
-# Output lines (relay, LEDs) are owned by the purser-gpio service; the core sends it commands
-# through a FIFO and writes the wanted LED pattern to $RUN_DIR/led. GPIO_MODE=sim keeps all
-# state in files under $SIM_DIR (tests, no hardware).
+# Hardware. The box is a board, a USB-SATA cable in its USB-A port and a disk. Nothing else.
+#   - the disk stays attached; "off" means locked (LUKS closed) and not mounted
+#   - a hung USB-SATA bridge is reset in software (authorized 0/1, else unbind/bind), once
+#   - the only indicator is the board's own LED under /sys/class/leds, if it has one
+# Every /sys path goes through SYS_DIR so the test suite can point it at a fake tree.
 
-gpio_mode() {
-  case $GPIO_MODE in
-    sim|sysfs|gpiod) echo "$GPIO_MODE" ;;
-    *) if [ -n "$GPIO_BASE" ] && [ -d /sys/class/gpio ]; then echo sysfs; else echo gpiod; fi ;;
-  esac
-}
+# --- USB disks ---
 
-gpio_cmd() {   # send one command line to purser-gpio
-  timeout 3 sh -c 'printf "%s\n" "$1" > "$2"' _ "$1" "$GPIO_FIFO" || log "GPIO command not delivered (is purser-gpio running?)"
-}
-
-relay_set() {   # relay_set 1 = disk energized, 0 = off (RELAY_ACTIVE_LOW handled by purser-gpio)
-  if [ "$(gpio_mode)" = sim ]; then
-    echo "$1" > "$SIM_DIR/relay"
-    [ -x "$SIM_DIR/on-relay" ] && "$SIM_DIR/on-relay" "$1"
-    return 0
-  fi
-  gpio_cmd "relay $1"
-}
-
-sense_get() {   # 1 = disk 5 V present
-  local n v
-  case $(gpio_mode) in
-    sim)
-      if [ -e "$SIM_DIR/sense-stuck" ]; then echo 1
-      elif [ -e "$SIM_DIR/sense-dead" ]; then echo 0
-      else cat "$SIM_DIR/relay" 2>/dev/null || echo 0; fi ;;
-    sysfs)
-      n=$(( GPIO_BASE + SENSE_LINE ))
-      if [ ! -d "/sys/class/gpio/gpio$n" ]; then
-        echo "$n" > /sys/class/gpio/export 2>/dev/null || true; sleep 0.2
-        echo in > "/sys/class/gpio/gpio$n/direction" 2>/dev/null || true
-      fi
-      cat "/sys/class/gpio/gpio$n/value" ;;
-    *)
-      v=$(gpioget --numeric -c "$GPIO_CHIP" "$SENSE_LINE" 2>/dev/null) || v=x
-      echo "$v" ;;
-  esac
-}
-
-wait_sense() {   # wait_sense <0|1> <seconds>
-  local i
-  for (( i = 0; i < $2 * 5; i++ )); do
-    [ "$(sense_get)" = "$1" ] && return 0
-    sleep 0.2
-  done
-  return 1
-}
-
-led_set() {   # led_set green|red|red-blink|both|off
-  if [ "$(gpio_mode)" = sim ]; then echo "$1" > "$SIM_DIR/led"; return 0; fi
-  install -d -m 0755 "$RUN_DIR"
-  write_atomic "$RUN_DIR/led" "$1"
-}
-
-# DS3231 on any I2C bus at 0x68. Sets the system clock from it at boot.
-rtc_device() {
-  local b n r
-  if [ "$(gpio_mode)" = sim ]; then [ -e "$SIM_DIR/rtc" ] && { echo "$SIM_DIR/rtc"; return 0; }; return 1; fi
-  for b in /sys/bus/i2c/devices/i2c-*; do
+# One line per USB block device: "<dev> <size bytes> <model>"; found through sysfs, not lsblk.
+usb_disks() {
+  local b name path size model
+  for b in "$SYS_DIR"/block/*; do
     [ -e "$b" ] || continue
-    n=${b##*-}
-    i2cget -y "$n" 0x68 0x00 >/dev/null 2>&1 || continue
-    [ -e "/sys/bus/i2c/devices/$n-0068" ] || { echo ds3231 0x68 > "$b/new_device" 2>/dev/null || true; sleep 1; }
-    r=$(basename "$(readlink -f /sys/bus/i2c/devices/"$n"-0068/rtc/rtc* 2>/dev/null)" 2>/dev/null || true)
-    [ -n "$r" ] && [ -e "/dev/$r" ] && { echo "/dev/$r"; return 0; }
+    name=${b##*/}
+    path=$(readlink -f "$b" 2>/dev/null) || continue
+    [[ $path == */usb[0-9]*/* ]] || continue
+    size=$(( $(cat "$b/size" 2>/dev/null || echo 0) * 512 ))
+    model=$(tr -cd 'A-Za-z0-9 ._-' < "$b/device/model" 2>/dev/null | sed 's/  */ /g; s/ $//')
+    printf '%s %s %s\n' "$DEV_DIR/$name" "$size" "${model:-?}"
   done
-  return 1
 }
 
-# USB link speed (Mbit/s) of the block device: 480 = High Speed.
-usb_speed() {   # usb_speed /dev/sdX
+# The USB device (port name such as 1-1) a block device hangs off.
+usb_port_of() {   # usb_port_of /dev/sdX
   local p
-  if [ "$(gpio_mode)" = sim ]; then cat "$SIM_DIR/usb-speed" 2>/dev/null || echo 480; return 0; fi
-  p=$(readlink -f "/sys/class/block/$(basename "$1")" 2>/dev/null) || return 1
-  while [ -n "$p" ] && [ "$p" != / ]; do
-    [ -r "$p/speed" ] && [ -r "$p/idVendor" ] && { cat "$p/speed"; return 0; }
+  p=$(readlink -f "$SYS_DIR/class/block/$(basename "$1")" 2>/dev/null) || return 1
+  while [ -n "$p" ] && [ "$p" != / ] && [ "$p" != "$SYS_DIR" ]; do
+    [ -r "$p/idVendor" ] && [ -r "$p/speed" ] && { basename "$p"; return 0; }
     p=$(dirname "$p")
   done
   return 1
 }
 
-# Find the GPIO chip and sysfs base by label; kernels renumber them, labels stay.
-gpio_detect() {   # prints "CHIP BASE" (BASE may be empty)
-  local chip="" base="" c
-  if command -v gpiodetect >/dev/null 2>&1; then
-    chip=$(gpiodetect 2>/dev/null | awk -v l="$GPIO_CHIP_LABEL" 'index($0, "[" l "]") { print $1; exit }')
+# USB link speed (Mbit/s) of the block device: 480 = High Speed (USB 2.0), 5000 = USB 3.
+usb_speed() {   # usb_speed /dev/sdX
+  local port
+  port=$(usb_port_of "$1") || return 1
+  cat "$SYS_DIR/bus/usb/devices/$port/speed"
+}
+
+# Every USB port that carries a mass-storage interface (class 08), present or not.
+usb_storage_ports() {
+  local i
+  for i in "$SYS_DIR"/bus/usb/devices/*:*; do
+    [ -r "$i/bInterfaceClass" ] || continue
+    [ "$(cat "$i/bInterfaceClass")" = 08 ] || continue
+    i=${i##*/}; echo "${i%%:*}"
+  done | sort -u
+}
+
+# Software reset of a hung bridge: de-authorize and re-authorize the USB device; when that is
+# not possible, unbind and bind it at the USB core. The disk keeps its power throughout.
+usb_reset() {   # usb_reset <port>
+  local port=$1 d=$SYS_DIR/bus/usb/devices/$1
+  [[ $port =~ ^[0-9]+-[0-9.]+$ ]] || return 1
+  if [ -w "$d/authorized" ]; then
+    echo 0 > "$d/authorized" && sleep 2 && echo 1 > "$d/authorized" && { log "USB $port re-authorized"; return 0; }
   fi
-  for c in /sys/class/gpio/gpiochip*; do
-    [ -r "$c/label" ] || continue
-    [ "$(cat "$c/label")" = "$GPIO_CHIP_LABEL" ] && base=$(cat "$c/base")
+  if [ -w "$SYS_DIR/bus/usb/drivers/usb/unbind" ]; then
+    echo "$port" > "$SYS_DIR/bus/usb/drivers/usb/unbind" 2>/dev/null || true
+    sleep 2
+    echo "$port" > "$SYS_DIR/bus/usb/drivers/usb/bind" && { log "USB $port unbound and bound"; return 0; }
+  fi
+  return 1
+}
+
+settle() { udevadm settle --timeout=30 >/dev/null 2>&1 || sleep 3; }
+
+# --- the board LED ---
+
+board_led() {   # prints the LED directory, or nothing
+  local l
+  case $BOARD_LED in
+    none) return 0 ;;
+    auto) ;;
+    *) [ -d "$SYS_DIR/class/leds/$BOARD_LED" ] && echo "$SYS_DIR/class/leds/$BOARD_LED"; return 0 ;;
+  esac
+  for l in "$SYS_DIR"/class/leds/*status* "$SYS_DIR"/class/leds/*green* "$SYS_DIR"/class/leds/*; do
+    [ -d "$l" ] || continue
+    case ${l##*/} in *mmc*|*::*|*phy*|*eth*|*lan*|*bt*|*usb*) continue ;; esac
+    echo "$l"; return 0
   done
-  echo "${chip:-} ${base:-}"
+}
+
+# led_show ok | warn | alarm | setup | off
+#   ok: steady on   warn: slow blink   alarm: fast blink   setup: heartbeat   off: dark
+# No LED or no timer trigger: the pattern degrades to on/off, or to nothing. Never an error.
+led_show() {
+  local d max on=1000 off=1000
+  d=$(board_led)
+  [ -n "$d" ] || return 0
+  max=$(cat "$d/max_brightness" 2>/dev/null || echo 1)
+  case $1 in
+    ok)    { echo none > "$d/trigger" && echo "$max" > "$d/brightness"; } 2>/dev/null ;;
+    off)   { echo none > "$d/trigger" && echo 0 > "$d/brightness"; } 2>/dev/null ;;
+    setup) { echo heartbeat > "$d/trigger"; } 2>/dev/null || { echo none > "$d/trigger"; echo "$max" > "$d/brightness"; } 2>/dev/null ;;
+    warn|alarm)
+      [ "$1" = alarm ] && on=150 off=150
+      if { echo timer > "$d/trigger"; } 2>/dev/null && [ -w "$d/delay_on" ]; then
+        { echo "$on" > "$d/delay_on"; echo "$off" > "$d/delay_off"; } 2>/dev/null
+      else { echo none > "$d/trigger"; echo "$max" > "$d/brightness"; } 2>/dev/null; fi ;;
+  esac
+  return 0
+}
+
+# --- the clock: network time through chrony (the board has no battery clock) ---
+#
+# The clock is trusted when chrony is synchronised, network time agrees with it (chrony refuses
+# steps larger than CLOCK_JUMP_MAX after start) and it has not jumped against the monotonic
+# clock since the last look. Retention counts generations, so a wrong clock cannot make the box
+# delete history faster; an untrusted clock only stops tonight's generation and is reported.
+
+mono() { if [ -n "${PURSER_FAKE_MONO:-}" ]; then echo "$PURSER_FAKE_MONO"; else cut -d. -f1 /proc/uptime; fi; }
+
+chrony_synced() {
+  local t ref leap
+  t=$(chronyc -c tracking 2>/dev/null) || return 1
+  ref=${t%%,*}; leap=${t##*,}
+  [ -n "$ref" ] && [ "$ref" != 00000000 ] && [ "$ref" != 7F7F0101 ] && [ "$leap" != "Not synchronised" ]
+}
+
+# Largest offset (s) between the box clock and any network source chrony sees.
+chrony_worst_offset() {
+  chronyc -c sourcestats 2>/dev/null | awk -F, '{ o = $7 + 0; if (o < 0) o = -o; if (o > m) m = o } END { printf "%d", m }'
+}
+
+# clock_state -> ok | unsynced | jump | disagree | early   (also records a detected jump)
+clock_state() {
+  local ref rw rm w m d f=$RUN_DIR/clock.ref j=$RUN_DIR/clock.jump worst built
+  install -d -m 0755 "$RUN_DIR"
+  w=$(now); m=$(mono)
+  if read -r rw rm < "$f" 2>/dev/null && [[ ${rw:-} =~ ^[0-9]+$ ]] && [[ ${rm:-} =~ ^[0-9]+$ ]]; then
+    d=$(( (w - rw) - (m - rm) )); d=${d#-}
+    if [ "$d" -gt "$CLOCK_JUMP_MAX" ]; then echo "$m $d" > "$j"; fi
+  fi
+  echo "$w $m" > "$f"
+  built=$(kv_get "$IMAGE_RELEASE" BUILD_DATE)
+  if [[ $built =~ ^[0-9]+$ ]] && [ "$w" -lt "$built" ]; then echo early; return 0; fi
+  if read -r ref _ < "$j" 2>/dev/null && [[ ${ref:-} =~ ^[0-9]+$ ]] && [ $(( m - ref )) -lt 3600 ]; then echo jump; return 0; fi
+  chrony_synced || { echo unsynced; return 0; }
+  worst=$(chrony_worst_offset)
+  if [[ $worst =~ ^[0-9]+$ ]] && [ "$worst" -gt "$CLOCK_JUMP_MAX" ]; then echo disagree; return 0; fi
+  echo ok
 }

@@ -1,0 +1,11 @@
+purser: saklama: gen-2026-01-01T03-10Z silindi
+/old/purser-v0: line 90: /sys/block/loop14/device/delete: No such file or directory
+purser: Bu gece yedeği aldım, 0,0 GB, 1 dakika. Diski çıkardım.
+purser: bildirim: Son sağlam yedek 7717 saat önce.
+curl: (60) SSL certificate problem: self-signed certificate
+More details here: https://curl.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the webpage mentioned above.
+purser: bildirim gitmedi

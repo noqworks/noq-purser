@@ -22,3 +22,15 @@ done_testing() {
 }
 in_container() { [ -e /.dockerenv ] || [ "${PURSER_TEST_CONTAINER:-}" = 1 ]; }
 in_container || { echo "tests run only inside the test container (tests/run.sh)" >&2; exit 3; }
+
+# The test container is privileged: its /sys is the host's. Every box call in the lab goes
+# through this wrapper, which refuses a configuration that would let the box use the real /sys
+# (USB reset, LED) or the real /dev/disk (the host's disks).
+lab_guard() {
+  local c=${PURSER_CONF:-/etc/purser/purser.conf}
+  [ -e "$c" ] || return 0
+  grep -qx 'SYS_DIR="/run/sim/sys"' "$c" && grep -qx 'BY_UUID_DIR="/run/sim/by-uuid"' "$c" && return 0
+  echo "lab_guard: $c does not point SYS_DIR/BY_UUID_DIR at the fake tree; refusing" >&2
+  exit 3
+}
+purser_lab() { lab_guard; /usr/local/sbin/purser "$@"; }

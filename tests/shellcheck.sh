@@ -1,5 +1,5 @@
 #!/bin/bash
-# shellcheck over every shell file in the repository (default severity: style).
+# Runs shellcheck over every shell file in the repository (default severity: style).
 . /src/tests/lib/assert.sh >/dev/null
 T_NAME=shellcheck
 cd /src || exit 1

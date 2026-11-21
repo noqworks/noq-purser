@@ -56,8 +56,8 @@ for i in "${!ids[@]}"; do
   if [ "$i" = 5 ]; then   # night 6: a pgBackRest file that never changes is changed
     f=$(find /srv/src/pgdemo/backup/demo -path '*F/pg_data/base/1/2608.zst' | sort | tail -1); echo tamper >> "$f"
   fi
-  [ "$i" = 6 ] && chmod 0550 /srv/server/ack   # night 7: the acknowledgement cannot be written
   publish_generation "$id"
+  [ "$i" = 6 ] && chmod 0550 /srv/server/ack   # night 7: the acknowledgement cannot be written
   old run > "$OUT/night-$((i + 1)).log" 2>&1 || echo "night $((i + 1)): exit $?" >> "$OUT/nights.txt"
   [ "$i" = 1 ] && old pin "$id" >> "$OUT/night-2.log" 2>&1
   echo "night $((i + 1)) $id done" >> "$OUT/nights.txt"

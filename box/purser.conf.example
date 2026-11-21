@@ -1,6 +1,7 @@
 # NOQ Purser box configuration (/etc/purser/purser.conf). No secrets here: keys and the
 # notification address live in /etc/purser/sirlar and /etc/purser/ssh. After editing run
-# "purser apply-config" (firewall, chrony, timer) and restart purser-gpio if pins changed.
+# "purser apply-config" (firewall, chrony, timer). The file is sourced: keys an older release
+# wrote and this one no longer uses are ignored.
 
 # --- server gate ---
 SERVER="192.0.2.10"           # IPv4 address of the protected server's gate
@@ -27,6 +28,7 @@ STALE_NIGHTS="2"              # source unchanged for N nights: warning
 LATE_H="30"                   # last sound generation older than N hours: alarm
 # MASS_DELETE_PCT="50"  MASS_CHANGE_PCT="50"  MASS_MIN_FILES="20"  LABEL_MAX_DAYS="2"
 # DISK_MIN_FREE_PCT="10"
+# LONG_MIN_NIGHTS="4"  MONTHLY_MIN_WEEKS="3"   (retention counts nights, never trusts dates)
 
 # --- disk ---
 LUKS_UUID=""                  # set by setup
@@ -45,13 +47,7 @@ NTP_POOL="pool.ntp.org"
 CLOCK_JUMP_MAX="600"
 MAINT_SSH_FROM=""             # empty = no SSH server at all; an address enables key-only SSH from it
 
-# --- hardware (Orange Pi Zero 3 header, see docs/hardware.md) ---
-GPIO_CHIP=""                  # detected by label at first boot
-GPIO_BASE=""
-GPIO_CHIP_LABEL="300b000.pinctrl"
-RELAY_LINE="71"               # PC7, header pin 22
-RELAY_ACTIVE_LOW="1"
-SENSE_LINE="75"               # PC11, header pin 12 (disk 5 V through the 10k/20k divider)
-LED_G_LINE="69"               # PC5, header pin 13
-LED_R_LINE="72"               # PC8, header pin 15
-SERIAL_TTY="ttyS0"
+# --- hardware (board + USB-SATA cable + disk; see docs/hardware.md) ---
+BOARD_LED="auto"              # auto | none | a name under /sys/class/leds (e.g. "green:status")
+SERIAL_TTY="ttyS0"            # the debug UART the restricted console runs on
+# DISK_WAIT="60"              # seconds to wait for the disk (and again after a USB reset)

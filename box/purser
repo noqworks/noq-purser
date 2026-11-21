@@ -40,20 +40,13 @@ load_config
 load_messages
 install -d -m 0700 "$STATE" 2>/dev/null || true
 
-# Boot: relay off, LEDs off, system clock from the DS3231, chrony told whether it may step.
+# Boot: the board has no battery clock, so chrony may step the clock during its first updates only; after that
+# it refuses any change larger than CLOCK_JUMP_MAX (and the core reports it). The LED shows the
+# last known state. After a reboot the disk is locked anyway (no mapper, no mount).
 cmd_boot() {
-  local rtc step
-  relay_set 0; led_set off
   install -d -m 0755 "$RUN_DIR/chrony.d"
-  rtc=$(rtc_device 2>/dev/null || true)
-  if [ -n "$rtc" ] && { [ "$(gpio_mode)" = sim ] || hwclock --hctosys -f "$rtc" 2>/dev/null; }; then
-    log "system clock taken from $rtc: $(date -u +%FT%TZ)"
-    step="maxchange $CLOCK_JUMP_MAX 0 -1"
-  else
-    log "no readable RTC; network time may set the clock once at start"
-    step=$'makestep 1 3\nmaxchange '"$CLOCK_JUMP_MAX"' 3 -1'
-  fi
-  printf '%s\n' "$step" > "$RUN_DIR/chrony.d/step.conf"
+  printf 'makestep 1 3\nmaxchange %s 3 -1\n' "$CLOCK_JUMP_MAX" > "$RUN_DIR/chrony.d/step.conf"
+  led_update
 }
 
 case ${1:-} in

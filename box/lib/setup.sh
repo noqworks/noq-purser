@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # First boot, the setup wizard on the serial console, disk preparation (new or adopted) and
 # rendering of system configuration (nftables, chrony, DNS, timer, maintenance SSH).
+#
+# Unattended first boot (setup.conf in the image): configuration, keys, gate host key (only
+# when it matches SERVER_HOSTKEY_FP), notification channel and an adopted disk. A NEW disk is
+# always prepared at the serial console, because its recovery passphrase is shown exactly once.
 
 SETUP_CONF=${SETUP_CONF:-/etc/purser/setup.conf}
 TEMPLATES=${TEMPLATES:-$PURSER_LIB/templates}
@@ -35,22 +39,12 @@ fix_ownership() {
   return 0
 }
 
-# Kernels renumber GPIO chips; the label does not change.
-gpio_redetect() {
-  [ "$GPIO_MODE" = sim ] && return 0
-  local chip base
-  read -r chip base < <(gpio_detect)
-  [ -n "$chip" ] && [ "$chip" != "$GPIO_CHIP" ] && { conf_set GPIO_CHIP "$chip"; log "GPIO chip is now $chip"; }
-  if [ "${base:-}" != "$GPIO_BASE" ]; then conf_set GPIO_BASE "${base:-}"; log "GPIO sysfs base is now ${base:-none}"; fi
-  return 0
-}
-
 # setup.conf (optional, embedded in the image) -> purser.conf + secrets. Removed afterwards.
 apply_setup_conf() {
   [ -r "$SETUP_CONF" ] || return 0
   local k v topic
   # shellcheck source=/dev/null
-  ( . "$SETUP_CONF"; set | grep -E '^(SERVER|SERVER_PORT|SERVER_USER|KINDS|LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|MAINT_SSH_FROM|RELAY_LINE|RELAY_ACTIVE_LOW|SENSE_LINE|LED_G_LINE|LED_R_LINE|NOTIFY_KIND|SERIAL_TTY)=' ) \
+  ( . "$SETUP_CONF"; set | grep -E '^(SERVER|SERVER_PORT|SERVER_USER|KINDS|LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|MAINT_SSH_FROM|BOARD_LED|NOTIFY_KIND|SERIAL_TTY)=' ) \
     > "$RUN_DIR/setup.vars" || true
   [ -r "$CONF" ] || install -m 0644 "$PURSER_LIB/purser.conf.example" "$CONF"
   while IFS='=' read -r k v; do
@@ -165,15 +159,8 @@ dns_apply() {
 
 # --- disk: new (LUKS2 + btrfs) or adopted (key moved from the old card) ---
 
-# In GPIO_MODE=sim (tests) device discovery comes from a file: tests never see real disks.
-usb_disks() {
-  if [ "$(gpio_mode)" = sim ]; then [ "$(cat "$SIM_DIR/relay" 2>/dev/null)" = 1 ] && cat "$SIM_DIR/usb-disks" 2>/dev/null; return 0; fi
-  lsblk -dnpo NAME,TRAN,SIZE,MODEL,SERIAL 2>/dev/null | awk '$2 == "usb"'
-}
-
-disk_power_wait() {   # energize and wait until at least one USB disk shows up
+disk_usb_wait() {   # wait until at least one USB disk shows up
   local i
-  relay_set 1
   for (( i = 0; i < DISK_WAIT; i++ )); do [ -n "$(usb_disks)" ] && return 0; sleep 1; done
   return 1
 }
@@ -181,14 +168,14 @@ disk_power_wait() {   # energize and wait until at least one USB disk shows up
 disk_new() {   # interactive; erases the chosen disk
   local disks dev n ok cipher=() rec back
   [ -z "$LUKS_UUID" ] || { say "$(msg E_DISK_CONFIGURED "$LUKS_UUID")" >&2; return 1; }
-  disk_power_wait || { relay_set 0; say "$(msg E_NO_USB_DISK)" >&2; return 1; }
+  disk_usb_wait || { say "$(msg E_NO_USB_DISK)" >&2; return 1; }
   disks=$(usb_disks); n=$(wc -l <<< "$disks")
   say "$disks"
-  if [ "$n" -ne 1 ]; then relay_set 0; say "$(msg E_ONE_DISK)" >&2; return 1; fi
+  if [ "$n" -ne 1 ]; then say "$(msg E_ONE_DISK)" >&2; return 1; fi
   dev=$(awk '{ print $1 }' <<< "$disks")
   if cryptsetup isLuks "$dev" 2>/dev/null || [ -n "$(lsblk -nro FSTYPE "$dev" | tr -d '\n')" ]; then say "$(msg W_DISK_HAS_DATA "$dev")"; fi
   printf '%s' "$(msg P_ERASE "$dev")" >&2; read -r ok || ok=""
-  [ "$ok" = ERASE ] || { relay_set 0; say "$(msg E_ABORTED)" >&2; return 1; }
+  [ "$ok" = ERASE ] || { say "$(msg E_ABORTED)" >&2; return 1; }
   if cryptsetup benchmark -c aes-xts-plain64 -s 512 2>/dev/null | awk '/aes-xts/ { exit !($5 + 0 >= 150) }'; then
     cipher=(--cipher aes-xts-plain64 --key-size 512)
   else
@@ -224,12 +211,11 @@ disk_adopt() {   # uses the key file moved from the old card
   local d uuid
   [ -r "$LUKS_KEY" ] || { say "$(msg E_NO_KEY "$LUKS_KEY")" >&2; return 1; }
   if [ -z "$LUKS_UUID" ]; then
-    disk_power_wait || { relay_set 0; say "$(msg E_NO_USB_DISK)" >&2; return 1; }
+    disk_usb_wait || { say "$(msg E_NO_USB_DISK)" >&2; return 1; }
     for d in $(usb_disks | awk '{ print $1 }'); do
       cryptsetup isLuks "$d" 2>/dev/null || continue
       if cryptsetup open --test-passphrase --key-file "$LUKS_KEY" "$d" 2>/dev/null; then uuid=$(cryptsetup luksUUID "$d"); break; fi
     done
-    relay_set 0
     [ -n "${uuid:-}" ] || { say "$(msg E_KEY_NO_DISK)" >&2; return 1; }
     conf_set LUKS_UUID "$uuid"
   fi
@@ -262,26 +248,32 @@ cmd_firstboot() {
   [ "$(setup_get state)" = "done" ] && return 0
   ensure_users; fix_ownership
   apply_setup_conf
-  if [ ! -r "$CONF" ]; then log "no configuration yet; waiting for 'setup' on the serial console"; led_set both; return 0; fi
-  gpio_redetect; load_config
-  systemd_up && systemctl restart purser-gpio.service 2>/dev/null || true
+  if [ ! -r "$CONF" ]; then log "no configuration yet; waiting for 'setup' on the serial console"; led_show setup; return 0; fi
+  load_config
   [ -n "$SERVER" ] && apply_config || true
   ensure_ssh_key
   ensure_known_hosts && setup_mark hostkey "done"
-  [ -n "$LUKS_UUID" ] && [ -r "$LUKS_KEY" ] && disk_adopt >/dev/null && true
+  if [ -r "$LUKS_KEY" ] && { [ -n "$LUKS_UUID" ] || [ "$(setup_get disk_mode)" = adopt ]; }; then disk_adopt >/dev/null || true; fi
+  local fails=0
+  install -d -m 0755 "$RUN_DIR"; cmd_selftest > "$RUN_DIR/selftest.txt" 2>&1 || fails=$?
+  log "first boot self-test: $fails failures"
+  [ "$fails" -eq 0 ] || notify selftest_failed high N_SELFTEST_FAILED "$fails"
   setup_finish_if_complete
   if [ "$(setup_get state)" = "done" ]; then
     notify box_ready default N_BOX_READY "$PURSER_VERSION" "$(cat "$ST_LAST_PUBLISHED" 2>/dev/null || echo -)"
+    code_is_set || { notify code_missing default N_CODE_MISSING; due_once code_missing $(( 7 * 86400 )) || true; }
   else
     notify setup_waiting default N_SETUP_WAITING "$(setup_missing | tr '\n' ' ')"
   fi
   led_update
 }
 
+# What the nightly job needs. The operation code is not on this list: it only guards the
+# commands at the box, and a card moved from an older release has none yet. Without it the
+# nightly job runs and a weekly reminder goes out until "setup-code" is run at the console.
 setup_missing() {
   [ -s "$SSH_DIR/known_hosts" ] || echo hostkey
   [ -s "$NOTIFY" ] || echo notify
-  code_is_set || echo code
   [ -n "$LUKS_UUID" ] || echo disk
   return 0
 }
@@ -297,6 +289,8 @@ setup_finish_if_complete() {
     fi
   fi
 }
+
+box_ip() { hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1; }
 
 # --- the wizard on the serial console ---
 ask() {   # ask <prompt key> <default> -> answer
@@ -319,21 +313,11 @@ cmd_setup() {
   conf_set KINDS "$(ask W_KINDS "${KINDS:-pgbackrest:pgbackrest}")"
   conf_set NIGHT_AT "$(ask W_NIGHT "$NIGHT_AT")"
   conf_set POLL_UNTIL "$(ask W_POLL_UNTIL "$POLL_UNTIL")"
-  gpio_redetect; load_config
-  systemd_up && systemctl restart purser-gpio.service 2>/dev/null || true
+  load_config
   apply_config || true
-  say "$(msg W_RELAY)"
-  relay_set 1; sleep 3; local on; on=$(sense_get); relay_set 0; sleep 2
-  if ! yes_no W_RELAY_OK; then
-    conf_set RELAY_ACTIVE_LOW "$(( 1 - RELAY_ACTIVE_LOW ))"
-    systemctl restart purser-gpio 2>/dev/null || true; sleep 1
-    say "$(msg W_RELAY_INVERTED)"; relay_set 1; sleep 3; on=$(sense_get); relay_set 0
-    yes_no W_RELAY_OK || { say "$(msg E_RELAY)"; return 1; }
-  fi
-  [ "$on" = 1 ] || say "$(msg W_SENSE_ZERO)"
   ensure_ssh_key
   say "$(msg W_PUBKEY)"; say ""
-  say "  purser-admit $(ip -4 -o addr show scope global 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4; exit }') '$(cat "$SSH_DIR/id_ed25519.pub")'"
+  say "  purser-admit $(box_ip) '$(cat "$SSH_DIR/id_ed25519.pub")'"
   say ""
   printf '%s' "$(msg P_ENTER)" >&2; read -r _ || true
   local fp t=$SSH_DIR/known_hosts.new

@@ -1,46 +1,45 @@
 # shellcheck shell=bash
-# Hardware self-test: relay and voltage sense, LEDs, RTC, disk on USB and its link speed.
-# Prints one PASS/FAIL line per item; returns the number of failures.
+# Self-test: the disk is on USB, its link speed, SMART can be read through the bridge, the
+# network reaches the gate, the clock is synchronised. One PASS/FAIL line each; returns the
+# number of failures. Reads only; the disk stays locked.
 
 cmd_selftest() {
-  local fails=0 dev speed rtc t
+  local fails=0 dev speed t c
   st_line() { if [ "$1" = 0 ]; then say "  PASS  $2"; else say "  FAIL  $2"; fails=$(( fails + 1 )); fi; }
   say "$(msg ST_TITLE)"
-  if disk_is_open; then say "$(msg E_DISK_OPEN)"; return 1; fi
 
-  relay_set 0; sleep 1
-  t=1; wait_sense 0 5 && t=0; st_line $t "$(msg ST_SENSE_OFF)"
-  relay_set 1
-  t=1; wait_sense 1 10 && t=0; st_line $t "$(msg ST_SENSE_ON)"
+  # 1. disk on USB (the configured one if there is a configuration, else any)
   if [ -n "$LUKS_UUID" ]; then
-    for (( i = 0; i < DISK_WAIT; i++ )); do disk_present && break; sleep 1; done
-    t=1; disk_present && t=0; st_line $t "$(msg ST_DISK_SEEN)"
+    t=1; disk_wait 5 && t=0; st_line $t "$(msg ST_DISK_SEEN)"
     dev=$(disk_dev || true)
   else
-    sleep 8
     dev=$(usb_disks | awk '{ print $1; exit }' || true)
     t=1; [ -n "$dev" ] && t=0; st_line $t "$(msg ST_DISK_SEEN_USB "${dev:-none}")"
   fi
+  # 2. link speed: High Speed or better
   if [ -n "$dev" ]; then
-    speed=$(usb_speed "$dev" || echo "?")
-    t=1; [ "$speed" = 480 ] && t=0; st_line $t "$(msg ST_USB_SPEED "$speed")"
-  fi
-  relay_set 0
-  t=1; wait_sense 0 10 && t=0; st_line $t "$(msg ST_SENSE_DROP)"
-
-  say "$(msg ST_LEDS)"
-  led_set green; sleep 2; led_set red; sleep 2; led_set both; sleep 2; led_set off; sleep 1
-
-  rtc=$(rtc_device 2>/dev/null || true)
-  if [ -n "$rtc" ]; then
-    local r d
-    if [ "$(gpio_mode)" = sim ]; then r=$(date -d "@$(cat "$rtc")"); else r=$(hwclock -r -f "$rtc" 2>/dev/null || true); fi
-    d=$(( $(date -d "$r" +%s 2>/dev/null || echo 0) - $(date +%s) )); d=${d#-}
-    t=1; [ -n "$r" ] && [ "$d" -lt 120 ] && t=0
-    st_line $t "$(msg ST_RTC "$rtc" "$d")"
+    speed=$(usb_speed "$dev" 2>/dev/null || echo "?")
+    t=1; [[ $speed =~ ^[0-9]+$ ]] && [ "$speed" -ge 480 ] && t=0; st_line $t "$(msg ST_USB_SPEED "$speed")"
   else
-    st_line 1 "$(msg ST_RTC_NONE)"
+    st_line 1 "$(msg ST_USB_SPEED "?")"
   fi
+  # 3. SMART through the USB-SATA bridge
+  t=1
+  if [ -n "$dev" ] && command -v smartctl >/dev/null 2>&1; then
+    local rc=0; smartctl -d sat -i "$dev" >/dev/null 2>&1 || rc=$?
+    [ $(( rc & 3 )) -eq 0 ] && t=0
+  fi
+  st_line $t "$(msg ST_SMART)"
+  # 4. network: an address, a default route, the gate's port answers
+  t=1
+  if awk '$2 == "00000000" { f = 1 } END { exit !f }' /proc/net/route 2>/dev/null && [ -n "$SERVER" ] \
+     && timeout 5 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$SERVER" "$SERVER_PORT" 2>/dev/null; then t=0; fi
+  st_line $t "$(msg ST_NETWORK "${SERVER:-?}" "$SERVER_PORT")"
+  # 5. clock
+  c=$(clock_state)
+  t=1; [ "$c" = ok ] && t=0; st_line $t "$(msg ST_CLOCK "$(msg "CLOCK_${c^^}")")"
+
+  [ -n "$(board_led)" ] && { say "$(msg ST_LED)"; led_show alarm; sleep 3; }
   led_update
   say "$(msg ST_RESULT "$fails")"
   return "$fails"

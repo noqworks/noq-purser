@@ -1,7 +1,7 @@
 #!/bin/bash
 # NOQ Purser test suite. Runs on any Linux host with Docker; everything happens inside a
 # disposable privileged container booted with systemd (the box sandbox is the real
-# systemd-run). No hardware: GPIO, relay and LUKS are simulated, btrfs is a loop file.
+# systemd-run). No hardware: LUKS and the box's sysfs are simulated, btrfs is a loop file.
 #   tests/run.sh                      all suites
 #   tests/run.sh unit e2e attack      selected suites (shellcheck unit e2e attack compat)
 #   tests/run.sh --make-fixture <original core> <out dir>   rebuild the compatibility fixture
@@ -15,6 +15,9 @@ command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 
 if [ "${1:-}" = --server-install ]; then shift; exec bash "$REPO/tests/install/server-install.sh" "$@"; fi
 
+# Loop devices are global to the host kernel: lab runs and the image build take turns.
+exec 8>"${PURSER_LOOP_LOCK:-/tmp/noq-purser-loop.lock}"
+flock 8
 docker build -q -t "$IMAGE" "$REPO/tests/container" >/dev/null
 mounts=(-v "$REPO:/src:ro")
 if [ "${1:-}" = --make-fixture ]; then
