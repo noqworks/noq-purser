@@ -1,0 +1,60 @@
+#!/bin/bash
+# NOQ Purser: restricted serial console. agetty starts it in place of login. It only knows
+# fixed commands and passes them to the core; the core asks for the operation code itself.
+# This program never reads, stores or checks the code. There is no way to a shell from here
+# except the core's code-protected and always-notified "shell" command.
+set -uo pipefail
+PURSER_LIB=${PURSER_LIB:-/usr/local/lib/purser}
+PURSER_BIN=${PURSER_BIN:-/usr/local/sbin/purser}
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+trap '' INT QUIT TSTP
+ID='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$'
+lang=$(sed -n 's/^LANG_UI=//p' /etc/purser/purser.conf 2>/dev/null | tr -d "\"'" | tail -1)
+[ "$lang" = tr ] || lang=en
+help() {
+  if [ "$lang" = tr ]; then
+    cat <<'T'
+Komutlar:
+  status            durum
+  clear <kimlik>    şüpheyi kaldır (kod)       pin <kimlik>   nesli sabitle (kod)
+  disk-on           diski elle aç (kod)        disk-off       diski kapat
+  first-fill        ilk dolum (kod)            selftest       donanım öz sınaması
+  setup             kurulum sihirbazı          setup-code     ilk işlem kodunu üret
+  new-code          yeni işlem kodu (kod)      reset-code     kodu sıfırla (her zaman bildirilir)
+  notify-test       deneme bildirimi           shell          bakım kabuğu (kod, bildirilir)
+  help              bu liste
+T
+  else
+    cat <<'T'
+Commands:
+  status            state of the box
+  clear <id>        clear a suspect (code)    pin <id>       pin a generation (code)
+  disk-on           power the disk by hand (code)  disk-off  power it off
+  first-fill        first fill (code)         selftest       hardware self-test
+  setup             setup wizard              setup-code     create the first operation code
+  new-code          new operation code (code) reset-code     reset the code (always notified)
+  notify-test       test notification         shell          maintenance shell (code, notified)
+  help              this list
+T
+  fi
+}
+printf '\nNOQ Purser (%s)\n' "$(hostname)"
+"$PURSER_BIN" status 2>/dev/null | head -4
+help
+while :; do
+  printf 'purser> '
+  IFS= read -r line || { sleep 1; continue; }
+  line=$(printf '%s' "$line" | tr -cd 'a-z0-9 :TZ-' | sed 's/  */ /g; s/^ //; s/ $//')
+  cmd=${line%% *}; arg=${line#"$cmd"}; arg=${arg# }
+  case $cmd in
+    "") continue ;;
+    status|disk-on|disk-off|first-fill|selftest|setup|setup-code|new-code|reset-code|notify-test|shell)
+      [ -z "$arg" ] || { echo "?"; continue; }
+      ( trap - INT QUIT; exec "$PURSER_BIN" "$cmd" ) ;;
+    clear|pin)
+      [[ $arg =~ $ID ]] || { echo "? $cmd <id>"; continue; }
+      ( trap - INT QUIT; exec "$PURSER_BIN" "$cmd" "$arg" ) ;;
+    help|"?") help ;;
+    *) echo "?" ;;
+  esac
+done

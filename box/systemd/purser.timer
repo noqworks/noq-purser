@@ -1,0 +1,9 @@
+[Unit]
+Description=NOQ Purser nightly window (time from NIGHT_AT, see purser.timer.d/time.conf)
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

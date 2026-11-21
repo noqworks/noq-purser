@@ -1,0 +1,31 @@
+# NOQ Purser gate: a separate sshd that only lets the box in, only with its key, only to the
+# forced command. Rendered to /etc/purser/sshd_config by purser-admit; the main sshd is untouched.
+ListenAddress @LISTEN@:@PORT@
+HostKey /etc/purser/ssh/ssh_host_ed25519_key
+PidFile /run/purser-sshd.pid
+AllowUsers @USER@@@BOX_IP@
+AuthorizedKeysFile /etc/purser/ssh/authorized_keys
+AuthenticationMethods publickey
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+UsePAM no
+ForceCommand @PREFIX@/sbin/purser-gate
+PermitTTY no
+DisableForwarding yes
+PermitTunnel no
+PermitUserEnvironment no
+PermitUserRC no
+MaxAuthTries 2
+MaxSessions 2
+MaxStartups 4:50:10
+LoginGraceTime 20
+ClientAliveInterval 30
+ClientAliveCountMax 4
+HostKeyAlgorithms ssh-ed25519
+PubkeyAcceptedAlgorithms ssh-ed25519
+KexAlgorithms @KEX@
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com
+LogLevel VERBOSE
+SyslogFacility AUTH

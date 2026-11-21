@@ -1,0 +1,7 @@
+[Unit]
+Description=NOQ Purser hourly check (LED, delay alarm, clock, reminders)
+After=purser-boot.service purser-gpio.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/purser tick

@@ -1,0 +1,14 @@
+[Unit]
+Description=NOQ Purser first boot (keys, configuration, adopted disk)
+After=network-online.target purser-boot.service purser-gpio.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/purser/setup.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/purser firstboot
+ExecStartPost=/bin/sh -c 'grep -q "^state=done" /var/lib/purser/setup 2>/dev/null && touch /var/lib/purser/setup.done || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

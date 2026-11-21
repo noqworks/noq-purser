@@ -1,0 +1,14 @@
+[Unit]
+Description=NOQ Purser boot: relay off, system clock from the DS3231
+DefaultDependencies=no
+After=local-fs.target systemd-modules-load.service purser-gpio.service
+Before=chrony.service time-sync.target
+Wants=time-sync.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/purser boot
+
+[Install]
+WantedBy=multi-user.target

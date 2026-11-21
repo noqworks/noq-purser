@@ -1,0 +1,12 @@
+[Unit]
+Description=NOQ Purser: freeze tonight's generation for the box (waits for the backup jobs)
+After=local-fs.target
+ConditionPathExists=/etc/purser/source.conf
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/sbin/purser-source run
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=6h

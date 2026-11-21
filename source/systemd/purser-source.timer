@@ -1,0 +1,9 @@
+[Unit]
+Description=NOQ Purser: nightly generation (start time; it then waits for the jobs)
+
+[Timer]
+OnCalendar=*-*-* @TIMER_AT@:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,39 @@
+#!/bin/bash
+# NOQ Purser: SSH forced command for the box. Runs as the unprivileged gate user and accepts
+# exactly three requests:
+#   latest                      newest published generation id
+#   rsync --server --sender ... read-only rsync below generation/ (rrsync -ro)
+#   ack <id> [tamam|uyari|supheli]   the box's verdict; writes ack/<id>
+# Everything else is refused and logged. The only configuration it reads is BASE.
+set -euo pipefail
+CONF=${PURSER_SOURCE_CONF:-/etc/purser/source.conf}
+BASE=${PURSER_BASE:-}
+if [ -z "$BASE" ] && [ -r "$CONF" ]; then
+  BASE=$(sed -n 's/^BASE=//p' "$CONF" | tail -1 | tr -d "\"'")
+fi
+[[ $BASE =~ ^/[A-Za-z0-9._/-]+$ ]] || { logger -t purser-gate "BASE not configured"; exit 3; }
+RRSYNC=${RRSYNC:-$(command -v rrsync || echo /usr/bin/rrsync)}
+cmd=${SSH_ORIGINAL_COMMAND:-}
+id_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$'
+contact() {   # remember when and what the box asked (for the out-of-window alert of purser-source watch)
+  printf '%s %s\n' "$(date -u +%s)" "$1" > "$BASE/ack/.contact.tmp" 2>/dev/null && mv -f "$BASE/ack/.contact.tmp" "$BASE/ack/.contact" 2>/dev/null || true
+}
+case "$cmd" in
+  latest)
+    contact latest
+    exec cat "$BASE/generation/LATEST" ;;
+  "ack "*)
+    read -r _ id verdict extra <<< "$cmd"
+    verdict=${verdict:-tamam}
+    if ! [[ $id =~ $id_re ]] || [ ! -d "$BASE/generation/$id" ] || [ -n "${extra:-}" ] || ! [[ $verdict =~ ^(tamam|uyari|supheli)$ ]]; then
+      logger -t purser-gate "invalid ack"; exit 2
+    fi
+    contact ack
+    printf '%s %s\n' "$verdict" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BASE/ack/$id"
+    logger -t purser-gate "ack $id $verdict" ;;
+  "rsync --server --sender "*)
+    contact rsync
+    exec "$RRSYNC" -ro "$BASE/generation" ;;
+  *)
+    logger -t purser-gate "refused: $(printf '%.80s' "$cmd" | tr -cd 'A-Za-z0-9 ._/-')"; exit 1 ;;
+esac

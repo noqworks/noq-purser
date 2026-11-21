@@ -1,0 +1,94 @@
+#!/bin/bash
+# NOQ Purser: checks that read what the server sent. Runs only inside the sandbox as an
+# unprivileged user (purser-dogrula; purser-rsync for prune). It writes nowhere except the
+# one snapshot "prune" is given; results go to stdout as reason codes or validated lines.
+#
+#   purser-verify list  <list file> <generation id>   exit 0 = list follows the format
+#   purser-verify tree  <root> <list file>             exit 0 = tree holds exactly the listed files
+#   purser-verify ctime <root> <mark file>             paths whose ctime is newer than the mark
+#   purser-verify hash  <root>                         stdin: paths; stdout: sha256sum lines, "#bytes N"
+#   purser-verify scan  <root> <deadline epoch>        stdin: "hash  path"; stdout: "bad <path>", "#done N"
+#   purser-verify prune-pgbackrest <dir>               long-retention cut of a pgBackRest repository
+set -euo pipefail
+export LC_ALL=C
+umask 077
+
+reject() { echo "$1"; exit 1; }
+
+check_list() {
+  local f=$1 id=$2 w
+  w=$(mktemp -d)
+  trap 'rm -rf "$w"' RETURN
+  [ "$(head -c 16 "$f")" = "# purser-list 1" ] && [ "$(sed -n 1p "$f")" = "# purser-list 1" ] || reject LIST_VERSION
+  # headers: the contiguous "# " block after the version line; everything after it is data
+  awk -v h="$w/h" -v d="$w/d" 'NR == 1 { next }
+       !body && /^# / { print > h; next }
+       { body = 1; print > d }' "$f"
+  touch "$w/h" "$w/d"
+  grep -Evq '^# [a-z_]+=[A-Za-z0-9:._;, -]{0,200}$' "$w/h" && reject LIST_HEADER
+  [ -z "$(sed 's/=.*//' "$w/h" | sort | uniq -d | head -1)" ] || reject LIST_DUP_HEADER
+  grep -qx "# generation=$id" "$w/h" || reject LIST_GENERATION
+  grep -Eqx '# clean=(yes|no|unknown)' "$w/h" || reject LIST_CLEAN
+  grep -Eqx '# fresh=(yes|no)' "$w/h" || reject LIST_FRESH
+  [ -s "$w/d" ] || return 0
+  grep -Evq '^[0-9a-f]{64}  [A-Za-z0-9._/+-]+$' "$w/d" && reject LIST_LINE
+  awk 'length($0) > 1090 { bad = 1; exit } END { exit !bad }' "$w/d" && reject LIST_LONG
+  cut -c67- "$w/d" > "$w/p"
+  grep -Eq '(^/|(^|/)\.\.?(/|$)|//|/$|(^|/)\.purser-partial(/|$))' "$w/p" && reject LIST_PATH
+  sort "$w/p" > "$w/s"
+  [ -z "$(uniq -d "$w/s" | head -1)" ] || reject LIST_DUP
+  # a path may not also be a directory of another path
+  awk '{ f[$0] = 1; n = split($0, c, "/"); p = c[1]
+         for (i = 2; i <= n; i++) { d[p] = 1; p = p "/" c[i] } }
+       END { for (x in d) if (x in f) { bad = 1; exit } exit !bad }' "$w/s" && reject LIST_PREFIX
+  return 0
+}
+
+check_tree() {
+  local root=$1 list=$2 bad
+  cd "$root"
+  bad=$(find . -mindepth 1 ! -type f ! -type d -printf x -quit)
+  [ -z "$bad" ] || reject TREE_TYPE
+  if ! cmp -s <(find . -type f -printf '%P\n' | sort) <(awk 'NR > 1 && !/^# /' "$list" | cut -c67- | sort); then
+    reject TREE_MISMATCH
+  fi
+}
+
+case ${1:-} in
+  list) check_list "$2" "$3" ;;
+  tree) check_tree "$2" "$3" ;;
+  ctime) cd "$2" && find . -type f -cnewer "$3" -printf '%P\n' | sort ;;
+  hash)
+    t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+    cd "$2"
+    tr '\n' '\0' > "$t/paths"
+    xargs -0 -r sha256sum -- < "$t/paths"
+    printf '#bytes %s\n' "$(xargs -0 -r stat -c %s -- < "$t/paths" | awk '{ s += $1 } END { print s + 0 }')" ;;
+  scan)
+    t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+    cd "$2"; deadline=$3; done=0
+    split -l 64 - "$t/chunk."
+    for c in "$t"/chunk.*; do
+      [ -e "$c" ] || break
+      [ "$(date +%s)" -lt "$deadline" ] || break
+      sha256sum -c "$c" 2>/dev/null | sed -n 's/: FAILED.*$//p' | sed 's/^/bad /' || true
+      done=$(( done + $(wc -l < "$c") ))
+    done
+    echo "#done $done" ;;
+  prune-pgbackrest)
+    cd "$2" || exit 0
+    if [ -d archive ]; then
+      find -P archive -type f -regextype posix-extended \
+        -regex '.*/[0-9A-F]{24}(\.partial)?-[0-9a-f]{40}(\.[a-z0-9]+)?' -delete
+    fi
+    for st in backup/*/; do
+      [ -d "$st" ] || continue
+      newest=$(find "$st" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | grep -E '^[0-9]{8}-[0-9]{6}F$' | sort | tail -1 || true)
+      [ -n "$newest" ] || continue
+      for e in "$st"*/; do
+        e=${e%/}; b=${e##*/}
+        case $b in backup.history|"$newest") ;; *) find -P "$e" -delete ;; esac
+      done
+    done ;;
+  *) echo "usage: purser-verify list|tree|ctime|hash|scan|prune-pgbackrest ..." >&2; exit 2 ;;
+esac

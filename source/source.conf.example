@@ -1,0 +1,42 @@
+# NOQ Purser server side: /etc/purser/source.conf (bash, read by root). No secrets here.
+
+# Area served to the box. generation/ is read by the gate user, ack/ is written by it.
+BASE="/srv/purser"
+GATE_USER="purser"
+
+# Sources: type:path[:name]  (type: pgbackrest | borg | restic | dir; name defaults to the
+# last path component and becomes the directory inside each generation)
+SOURCES=(
+  "pgbackrest:/var/lib/pgbackrest"
+)
+
+# Freeze: auto tries reflink (XFS, btrfs), then hard links (same file system; fine for
+# repositories that never modify a file in place: pgBackRest, borg, restic), then a full copy.
+FREEZE="auto"
+
+# Do not freeze before these units have run tonight and finished (units whose timer is
+# disabled are not waited for). The tools' own locks are always waited for.
+WAIT_UNITS=()
+NIGHT_START="01:00"           # "tonight" starts here
+WAIT_MAX_MIN="240"
+
+# Freshness: a source whose newest backup is older than this is reported as fresh=no.
+FRESH_MAX_H="26"
+# Optional exact freshness: "name|command printing a unix time" ({path} = frozen copy)
+FRESH_CMDS=()
+
+# Commands run before freezing (e.g. force a WAL switch) and verification run on the frozen
+# copy ("name|command", {path} = frozen copy of that source). Any failure makes clean=no.
+PRE_FREEZE_CMDS=()
+VERIFY_CMDS=()
+
+# Generations kept on the server: the last acknowledged one plus this many newer ones.
+KEEP_UNACKED="3"
+
+# Optional alert hook: called as  ALERT_CMD... <event> <message>
+ALERT_CMD=()
+# purser-source watch: alert when no acknowledgement for ACK_ALERT_H hours, or when the box
+# connects outside its window (its polling interval plus the transfer ceiling).
+ACK_ALERT_H="30"
+BOX_WINDOW_START="05:00"
+BOX_WINDOW_END="10:00"

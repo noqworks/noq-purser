@@ -1,0 +1,57 @@
+# NOQ Purser box configuration (/etc/purser/purser.conf). No secrets here: keys and the
+# notification address live in /etc/purser/sirlar and /etc/purser/ssh. After editing run
+# "purser apply-config" (firewall, chrony, timer) and restart purser-gpio if pins changed.
+
+# --- server gate ---
+SERVER="192.0.2.10"           # IPv4 address of the protected server's gate
+SERVER_PORT="22"
+SERVER_USER="purser"
+# Sources inside each generation: type:directory[:prune days]
+#   type: pgbackrest | borg | restic | dir     prune days: "any" or ISO weekdays "7" / "6,7"
+KINDS="pgbackrest:pgbackrest"
+
+# --- window ---
+NIGHT_AT="05:15"              # first question to the server
+POLL_UNTIL="08:30"            # stop asking
+POLL_EVERY="300"
+MAX_MIN="80"                  # window ceiling in minutes (remote setups: raise it)
+LONG_DOW="7"                  # weekly/monthly copies are cut from the first generation on/after this weekday
+# PRUNE_DOW="7"               # default prune day for borg/restic/pgbackrest deletions
+
+# --- retention and signals ---
+KEEP_DAILY="14"
+KEEP_WEEKLY="8"
+KEEP_MONTHLY="12"
+WARN_FACTOR="3"               # transfer above N x the weekday median: warning
+STALE_NIGHTS="2"              # source unchanged for N nights: warning
+LATE_H="30"                   # last sound generation older than N hours: alarm
+# MASS_DELETE_PCT="50"  MASS_CHANGE_PCT="50"  MASS_MIN_FILES="20"  LABEL_MAX_DAYS="2"
+# DISK_MIN_FREE_PCT="10"
+
+# --- disk ---
+LUKS_UUID=""                  # set by setup
+MNT="/srv/purser"
+STATE="/var/lib/purser"
+
+# --- notifications and language ---
+LANG_UI="en"                  # en | tr
+NOTIFY_KIND="ntfy"            # ntfy | webhook
+# NOTIFY_CA=""                # CA bundle for a self-hosted notification server with a private CA
+
+# --- network and time ---
+DNS_SERVERS="1.1.1.1 9.9.9.9"
+NTP_SERVERS=""                # e.g. the router: "192.0.2.1"
+NTP_POOL="pool.ntp.org"
+CLOCK_JUMP_MAX="600"
+MAINT_SSH_FROM=""             # empty = no SSH server at all; an address enables key-only SSH from it
+
+# --- hardware (Orange Pi Zero 3 header, see docs/hardware.md) ---
+GPIO_CHIP=""                  # detected by label at first boot
+GPIO_BASE=""
+GPIO_CHIP_LABEL="300b000.pinctrl"
+RELAY_LINE="71"               # PC7, header pin 22
+RELAY_ACTIVE_LOW="1"
+SENSE_LINE="75"               # PC11, header pin 12 (disk 5 V through the 10k/20k divider)
+LED_G_LINE="69"               # PC5, header pin 13
+LED_R_LINE="72"               # PC8, header pin 15
+SERIAL_TTY="ttyS0"

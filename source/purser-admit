@@ -1,0 +1,72 @@
+#!/bin/bash
+# NOQ Purser: let one box in. Re-runnable; the previous box key and address are replaced.
+#   purser-admit <box ipv4> '<ssh-ed25519 public key>'
+#   purser-admit --revoke          remove the key, stop the gate, remove the firewall rule
+set -euo pipefail
+GATE_CONF=/etc/purser/gate.conf
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+[ -r "$GATE_CONF" ] || { echo "$GATE_CONF missing: run source/install.sh first" >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$GATE_CONF"
+: "${LISTEN_ADDR:?}" "${PORT:?}" "${GATE_USER:?}" "${PREFIX:?}" "${SHARE:?}"
+AK=/etc/purser/ssh/authorized_keys
+COMMENT="NOQ Purser box"
+
+fw_kind() {
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then echo ufw
+  elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then echo firewalld
+  elif command -v nft >/dev/null 2>&1 && [ -n "$(nft list ruleset 2>/dev/null | head -1)" ]; then echo nftables
+  else echo none; fi
+}
+fw_remove() {
+  local n old
+  case $(fw_kind) in
+    ufw) while n=$(ufw status numbered | sed -n "/$PORT\/tcp.*$COMMENT/{s/^\[ *\([0-9]*\)\].*/\1/p;q}") && [ -n "$n" ]; do
+           ufw --force delete "$n" >/dev/null; done ;;
+    firewalld)
+      old=$(sed -n 's/^BOX_IP=//p' /etc/purser/gate.state 2>/dev/null || true)
+      [ -n "$old" ] && firewall-cmd -q --permanent --remove-rich-rule="rule family=ipv4 source address=$old port port=$PORT protocol=tcp accept" 2>/dev/null || true
+      firewall-cmd -q --reload || true ;;
+  esac
+}
+fw_add() {   # fw_add <ip>
+  case $(fw_kind) in
+    ufw) ufw allow from "$1" to "$LISTEN_ADDR" port "$PORT" proto tcp comment "$COMMENT" >/dev/null; echo "firewall: ufw rule added" ;;
+    firewalld) firewall-cmd -q --permanent --add-rich-rule="rule family=ipv4 source address=$1 port port=$PORT protocol=tcp accept"
+               firewall-cmd -q --reload; echo "firewall: firewalld rich rule added" ;;
+    nftables) echo "firewall: nftables ruleset found; add this to your input chain yourself:"
+              echo "    ip saddr $1 ip daddr $LISTEN_ADDR tcp dport $PORT accept" ;;
+    *) echo "firewall: none detected. If you add one, allow only: tcp $1 -> $LISTEN_ADDR:$PORT" ;;
+  esac
+}
+
+if [ "${1:-}" = --revoke ]; then
+  : > "$AK"
+  systemctl disable --now purser-sshd.service >/dev/null 2>&1 || true
+  fw_remove; rm -f /etc/purser/gate.state /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf
+  systemctl daemon-reload; echo "gate closed"; exit 0
+fi
+
+ip=${1:?box IPv4 address}; key=${2:?box public key}
+[[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || { echo "not an IPv4 address: $ip" >&2; exit 1; }
+for o in "${BASH_REMATCH[@]:1}"; do [ "$o" -le 255 ] || { echo "not an IPv4 address: $ip" >&2; exit 1; }; done
+[[ $key =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,2}(\ [A-Za-z0-9@._-]+)?$ ]] || { echo "an ssh-ed25519 public key is expected" >&2; exit 1; }
+id "$GATE_USER" >/dev/null
+
+# key exchange: the strongest algorithms this OpenSSH knows
+kex=$(ssh -Q kex | grep -xE 'mlkem768x25519-sha256|sntrup761x25519-sha512(@openssh.com)?|curve25519-sha256' | paste -sd, -)
+printf 'from="%s",restrict,command="%s/sbin/purser-gate" %s\n' "$ip" "$PREFIX" "$key" > "$AK.new"
+chmod 0644 "$AK.new"; mv -f "$AK.new" "$AK"
+sed -e "s|@LISTEN@|$LISTEN_ADDR|; s|@PORT@|$PORT|; s|@USER@|$GATE_USER|; s|@BOX_IP@|$ip|; s|@PREFIX@|$PREFIX|; s|@KEX@|$kex|" \
+  "$SHARE/sshd_config.in" > /etc/purser/sshd_config.new
+/usr/sbin/sshd -t -f /etc/purser/sshd_config.new
+mv -f /etc/purser/sshd_config.new /etc/purser/sshd_config
+install -d /etc/systemd/system/purser-sshd.service.d
+printf '[Service]\nIPAddressAllow=%s/32\n' "$ip" > /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf
+fw_remove; fw_add "$ip"
+echo "BOX_IP=$ip" > /etc/purser/gate.state
+systemctl daemon-reload
+if systemctl is-active --quiet purser-sshd; then systemctl restart purser-sshd; else systemctl enable --now purser-sshd >/dev/null; fi
+echo "gate open: $LISTEN_ADDR:$PORT, only from $ip"
+echo "gate host key (compare with what the box shows):"
+ssh-keygen -lf /etc/purser/ssh/ssh_host_ed25519_key.pub

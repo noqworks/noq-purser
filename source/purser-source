@@ -1,0 +1,272 @@
+#!/bin/bash
+# NOQ Purser, server side. Every night, once that night's backup jobs are done:
+#   1. wait for the configured units and the tools' locks
+#   2. freeze each source into generation/.build-<id>/ (reflink, hard links or copy)
+#   3. hash new or changed files (incremental, cache/<id>.cache), write <id>.list
+#   4. ask each source for freshness, run the configured verification commands
+#   5. publish: generation/<id>/, generation/<id>.list, generation/LATEST
+#   6. ceiling: keep the last acknowledged generation and the newest KEEP_UNACKED others
+#
+#   purser-source [run]   nightly run (purser-source.service)
+#   purser-source watch   hourly: alert when no ack for ACK_ALERT_H, or the box called outside its window
+#   purser-source check   validate the configuration
+set -euo pipefail
+export LC_ALL=C
+CONF=${PURSER_SOURCE_CONF:-/etc/purser/source.conf}
+[ -r "$CONF" ] || { echo "purser-source: $CONF missing" >&2; exit 2; }
+# shellcheck source=/dev/null
+. "$CONF"
+: "${BASE:?BASE not set in $CONF}" "${GATE_USER:=purser}" "${FREEZE:=auto}" "${NIGHT_START:=01:00}"
+: "${WAIT_MAX_MIN:=240}" "${FRESH_MAX_H:=26}" "${KEEP_UNACKED:=3}" "${ACK_ALERT_H:=30}"
+: "${BOX_WINDOW_START:=05:00}" "${BOX_WINDOW_END:=10:00}" "${HASH_NICE:=10}"
+declare -p SOURCES >/dev/null 2>&1 || SOURCES=()
+declare -p WAIT_UNITS >/dev/null 2>&1 || WAIT_UNITS=()
+declare -p PRE_FREEZE_CMDS >/dev/null 2>&1 || PRE_FREEZE_CMDS=()
+declare -p VERIFY_CMDS >/dev/null 2>&1 || VERIFY_CMDS=()
+declare -p FRESH_CMDS >/dev/null 2>&1 || FRESH_CMDS=()
+declare -p ALERT_CMD >/dev/null 2>&1 || ALERT_CMD=()
+GEN=$BASE/generation; ACK=$BASE/ack; CACHE=$BASE/cache
+ID_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$'
+NAME_RE='^[A-Za-z0-9._/+-]+$'
+
+log() { echo "purser-source: $*"; }
+alert() {   # alert <event> <message>; optional hook, never fatal
+  log "alert $1: $2"
+  [ ${#ALERT_CMD[@]} -gt 0 ] || return 0
+  "${ALERT_CMD[@]}" "$1" "$2" || log "ALERT_CMD failed"
+}
+die() { alert "${3:-failed}" "$1"; log "ERROR: $1"; exit "${2:-1}"; }
+
+src_type() { printf '%s' "${1%%:*}"; }
+src_path() { local r=${1#*:}; printf '%s' "${r%%:*}"; }
+src_name() { local r=${1#*:}; if [ "$r" != "${r#*:}" ]; then printf '%s' "${r#*:}"; else basename "${r%%:*}"; fi; }
+
+# ---------- 1. wait ----------
+unit_done_tonight() {   # a unit whose timer is enabled must have run tonight and be finished
+  local u=$1 t s st
+  systemctl is-enabled --quiet "${u%.service}.timer" 2>/dev/null || return 0
+  st=$(systemctl show -p ActiveState --value "$u")
+  { [ "$st" = active ] || [ "$st" = activating ]; } && return 1
+  t=$(systemctl show --timestamp=unix -p LastTriggerUSec --value "${u%.service}.timer"); t=${t#@}
+  s=$(systemctl show --timestamp=unix -p ExecMainStartTimestamp --value "$u"); s=${s#@}
+  [[ $t =~ ^[0-9]+$ ]] && [ "$t" -ge "$night_start" ] && return 0
+  [[ $s =~ ^[0-9]+$ ]] && [ "$s" -ge "$night_start" ]
+}
+tool_locked() {
+  local s p
+  for s in "${SOURCES[@]}"; do
+    p=$(src_path "$s")
+    case $(src_type "$s") in
+      pgbackrest) pgrep -f 'pgbackrest.* (backup|expire)( |$)' >/dev/null && return 0 ;;
+      borg) compgen -G "$p/lock.*" >/dev/null && return 0 ;;
+      restic) [ -n "$(find "$p/locks" -mindepth 1 -print -quit 2>/dev/null)" ] && return 0 ;;
+    esac
+  done
+  return 1
+}
+wait_ready() {
+  local deadline u ready
+  night_start=$(date -d "today $NIGHT_START" +%s)
+  deadline=$(( $(date +%s) + WAIT_MAX_MIN * 60 ))
+  while :; do
+    ready=1
+    for u in "${WAIT_UNITS[@]}"; do unit_done_tonight "$u" || ready=0; done
+    tool_locked && ready=0
+    [ $ready = 1 ] && return 0
+    [ "$(date +%s)" -lt "$deadline" ] || die "jobs not finished within $WAIT_MAX_MIN minutes; no generation tonight" 2 not_ready
+    sleep "${WAIT_POLL:-60}"
+  done
+}
+
+# ---------- 2. freeze ----------
+freeze_one() {   # freeze_one <src> <dst> -> prints method used
+  local src=$1 dst=$2 m
+  for m in $( [ "$FREEZE" = auto ] && echo reflink hardlink copy || echo "$FREEZE" ); do
+    case $m in
+      reflink) cp -a --reflink=always "$src" "$dst" 2>/dev/null && { echo reflink; return 0; } ;;
+      hardlink) [ "$(stat -c %d "$src")" = "$(stat -c %d "$(dirname "$dst")")" ] && cp -al "$src" "$dst" 2>/dev/null && { echo hardlink; return 0; } ;;
+      copy) cp -a "$src" "$dst" && { echo copy; return 0; } ;;
+      *) die "unknown FREEZE method: $m" 2 config ;;
+    esac
+    rm -rf -- "$dst"
+  done
+  return 1
+}
+cleanup_frozen() {   # remove the tools' temporary and lock files from the frozen copy
+  local s d
+  for s in "${SOURCES[@]}"; do
+    d=$TMP/$(src_name "$s")
+    case $(src_type "$s") in
+      pgbackrest) find "$d" -name '*.pgbackrest.tmp' -delete ;;
+      borg) rm -f -- "$d"/lock.exclusive "$d"/lock.roster; rm -rf -- "$d"/lock.exclusive ;;
+      restic) find "$d/locks" -mindepth 1 -delete 2>/dev/null || true ;;
+    esac
+  done
+}
+
+# ---------- 4. freshness ----------
+newest_epoch() {   # newest mtime below a directory (0 if empty)
+  find "$1" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1
+}
+fresh_epoch() {   # fresh_epoch <type> <frozen dir> <name>
+  local type=$1 d=$2 name=$3 e l c
+  for e in "${FRESH_CMDS[@]}"; do
+    [ "${e%%|*}" = "$name" ] || continue
+    c=${e#*|}; c=${c//\{path\}/$d}
+    bash -c "$c" 2>/dev/null | tail -1 | tr -cd '0-9'; return 0
+  done
+  case $type in
+    pgbackrest)
+      l=$(find "$d"/backup/*/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null \
+          | grep -Eo '[0-9]{8}-[0-9]{6}[FDI]$' | sort | tail -1 || true)
+      if [ -n "$l" ]; then date -d "${l:0:8} ${l:9:2}:${l:11:2}:${l:13:2}" +%s; else newest_epoch "$d/backup"; fi ;;
+    borg) newest_epoch "$d/data" ;;
+    restic) newest_epoch "$d/snapshots" ;;
+    *) newest_epoch "$d" ;;
+  esac
+}
+
+run() {
+  local ID TMP s m name t age fresh=yes clean=unknown notes=() e c prev cache_old note
+  declare -A METHOD=()
+  install -d -m 0751 -g "$GATE_USER" "$BASE" "$GEN"; install -d -m 0700 "$CACHE"
+  install -d -m 0770 -g "$GATE_USER" "$ACK"
+  wait_ready
+  for c in "${PRE_FREEZE_CMDS[@]}"; do bash -c "$c" >/dev/null || die "pre-freeze command failed: ${c%% *}" 1 pre_freeze; done
+  ID=$(date -u +%Y-%m-%dT%H-%MZ)
+  [ ! -e "$GEN/$ID" ] || die "generation $ID exists already" 1 exists
+  TMP=$GEN/.build-$ID
+  trap 'rm -rf -- "$TMP" "$TMP.list" "$TMP.cache" "$TMP".w' EXIT
+  mkdir "$TMP" "$TMP.w"
+  for s in "${SOURCES[@]}"; do
+    [ -d "$(src_path "$s")" ] || die "source missing: $(src_path "$s")" 1 source_missing
+    name=$(src_name "$s")
+    [[ $name =~ ^[A-Za-z0-9._+-]+$ ]] || die "source name not allowed: $name" 2 config
+    m=$(freeze_one "$(src_path "$s")" "$TMP/$name") || die "could not freeze $name" 1 freeze
+    METHOD[$name]=$m; notes+=("$name $m")
+  done
+  cleanup_frozen
+  local bad
+  bad=$(cd "$TMP" && find . -mindepth 1 -printf '%P\n' | grep -Evc "$NAME_RE" || true)
+  [ "$bad" = 0 ] || die "$bad names outside the allowed alphabet (A-Z a-z 0-9 . _ / + -); put such files inside a borg or restic repository" 1 names
+  bad=$(cd "$TMP" && find . -mindepth 1 ! -type f ! -type d -printf x | wc -c)
+  [ "$bad" = 0 ] || die "$bad entries that are neither file nor directory (symlinks, devices); not served" 1 types
+
+  # ---------- 3. list, incremental hashing ----------
+  prev=$(cat "$GEN/LATEST" 2>/dev/null || true)
+  cache_old=$CACHE/$prev.cache; { [ -n "$prev" ] && [ -f "$cache_old" ]; } || cache_old=/dev/null
+  (cd "$TMP" && find . -type f -printf '%s %T@ %P\n' | sort -k3) > "$TMP.w/now"
+  : > "$TMP.w/reuse"; : > "$TMP.w/todo"
+  awk -v old="$cache_old" -v reuse="$TMP.w/reuse" -v todo="$TMP.w/todo" '
+    BEGIN { while ((getline l < old) > 0) { split(l, a, " "); k[a[4]] = a[1] " " a[2]; h[a[4]] = a[3] } }
+    { p = $3; if ((p in k) && k[p] == $1 " " $2) print $1, $2, h[p], p > reuse; else print p > todo }' "$TMP.w/now"
+  (cd "$TMP" && tr '\n' '\0' < "$TMP.w/todo" | xargs -0 -r nice -n "$HASH_NICE" sha256sum --) > "$TMP.w/hashed"
+  awk 'NR == FNR { h[substr($0, 67)] = substr($0, 1, 64); next } { print $1, $2, h[$3], $3 }' "$TMP.w/hashed" \
+    <(awk 'NR == FNR { want[$0] = 1; next } ($3 in want)' "$TMP.w/todo" "$TMP.w/now") > "$TMP.w/new"
+  sort -k4 "$TMP.w/reuse" "$TMP.w/new" > "$TMP.cache"
+
+  # ---------- 4. freshness and the tools' own verification ----------
+  for s in "${SOURCES[@]}"; do
+    name=$(src_name "$s")
+    t=$(fresh_epoch "$(src_type "$s")" "$TMP/$name" "$name"); t=${t:-0}
+    age=$(( ($(date +%s) - t) / 3600 ))
+    if [ "$t" -eq 0 ] || [ "$age" -gt "$FRESH_MAX_H" ]; then fresh=no; notes+=("$name stale ${age}h"); fi
+  done
+  for e in "${VERIFY_CMDS[@]}"; do
+    name=${e%%|*}; c=${e#*|}; c=${c//\{path\}/$TMP/$name}
+    if bash -c "$c" >/dev/null 2>&1; then [ "$clean" = no ] || clean=yes; notes+=("$name verify ok")
+    else clean=no; notes+=("$name verify FAIL"); fi
+  done
+  note=$(IFS=';'; printf '%s' "${notes[*]}" | tr -cd 'A-Za-z0-9:._;, -' | cut -c1-200)
+
+  # ---------- 5. publish ----------
+  # Copies and reflinks are new inodes: give them to the gate group. Hard links share inodes
+  # with the live repository, so only the (new) directories are changed and every file must
+  # already be readable by the gate user.
+  for s in "${SOURCES[@]}"; do
+    name=$(src_name "$s")
+    if [ "${METHOD[$name]}" = hardlink ]; then
+      find "$TMP/$name" -type d -exec chgrp "$GATE_USER" {} + -exec chmod g+rx,g-w,o-rwx {} +
+    else
+      chgrp -R "$GATE_USER" "$TMP/$name"; chmod -R g+rX,g-w,o-rwx "$TMP/$name"
+    fi
+  done
+  chgrp "$GATE_USER" "$TMP"
+  if [ -n "$(runuser -u "$GATE_USER" -- find "$TMP" ! -readable -print -quit 2>/dev/null)" ]; then
+    die "$GATE_USER cannot read every file of the frozen copy; add it to the owning group or use FREEZE=reflink/copy" 1 permissions
+  fi
+  chmod 0751 "$TMP"
+  { echo "# purser-list 1"
+    echo "# generation=$ID"
+    echo "# created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "# clean=$clean"
+    echo "# fresh=$fresh"
+    echo "# note=$note"
+    awk '{ print $3 "  " $4 }' "$TMP.cache"; } > "$TMP.list"
+  chgrp "$GATE_USER" "$TMP.list"; chmod 0640 "$TMP.list"
+  mv "$TMP.list" "$GEN/$ID.list"; mv "$TMP.cache" "$CACHE/$ID.cache"; mv "$TMP" "$GEN/$ID"
+  echo "$ID" > "$GEN/.LATEST.tmp"; chgrp "$GATE_USER" "$GEN/.LATEST.tmp"; chmod 0640 "$GEN/.LATEST.tmp"
+  mv "$GEN/.LATEST.tmp" "$GEN/LATEST"
+  rm -rf -- "$TMP.w"; trap - EXIT
+  log "generation $ID: $(wc -l < "$CACHE/$ID.cache") files, clean=$clean fresh=$fresh ($note)"
+  [ "$fresh" = yes ] || alert stale "generation $ID: a source is stale ($note)"
+  [ "$clean" != no ] || alert verify_failed "generation $ID: verification failed ($note)"
+
+  # ---------- 6. ceiling ----------
+  local all keep last_ack g
+  mapfile -t all < <(find "$GEN" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | grep -E "$ID_RE" | sort)
+  last_ack=$(find "$ACK" -maxdepth 1 -type f -printf '%f\n' | grep -E "$ID_RE" | sort | tail -1 || true)
+  keep=$(printf '%s\n' "${all[@]}" | awk -v a="$last_ack" '$0 > a' | tail -n "$KEEP_UNACKED")
+  for g in "${all[@]}"; do
+    [ "$g" = "$last_ack" ] && continue
+    grep -qx "$g" <<< "$keep" && continue
+    rm -rf -- "${GEN:?}/$g" "$GEN/$g.list" "$CACHE/$g.cache"; log "ceiling: $g removed"
+  done
+  find "$ACK" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z' \
+    ! -name "$last_ack" -delete
+  # stale build directories of runs that were killed
+  find "$GEN" -mindepth 1 -maxdepth 1 -name '.build-*' -mmin +60 -exec rm -rf -- {} +
+}
+
+watch() {
+  local state=$CACHE/.watch last f at kind tod
+  [ -d "$ACK" ] || return 0
+  touch "$state"
+  last=$(find "$ACK" -maxdepth 1 -type f -printf '%T@ %f\n' | awk '$2 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$/' | sort -n | tail -1 | cut -d' ' -f1 | cut -d. -f1)
+  if [ -n "$last" ] && [ $(( $(date +%s) - last )) -gt $(( ACK_ALERT_H * 3600 )) ]; then
+    if [ "$(sed -n 's/^noack=//p' "$state")" != "$(date +%F)" ]; then
+      alert no_ack "no acknowledgement from the box for $(( ($(date +%s) - last) / 3600 )) hours"
+      sed -i '/^noack=/d' "$state"; echo "noack=$(date +%F)" >> "$state"
+    fi
+  fi
+  f=$ACK/.contact
+  if [ -r "$f" ]; then
+    read -r at kind < "$f" || true
+    if [[ ${at:-} =~ ^[0-9]+$ ]] && [ "$(sed -n 's/^contact=//p' "$state")" != "$at" ]; then
+      tod=$(date -d "@$at" +%H:%M)
+      if [[ $tod < $BOX_WINDOW_START ]] || [[ $tod > $BOX_WINDOW_END ]]; then
+        alert out_of_window "the box connected at $tod ($(printf '%s' "${kind:-}" | tr -cd '[:lower:]')), outside $BOX_WINDOW_START-$BOX_WINDOW_END"
+      fi
+      sed -i '/^contact=/d' "$state"; echo "contact=$at" >> "$state"
+    fi
+  fi
+}
+
+check() {
+  local s ok=0
+  id "$GATE_USER" >/dev/null 2>&1 || { echo "gate user $GATE_USER missing"; ok=1; }
+  [ ${#SOURCES[@]} -gt 0 ] || { echo "SOURCES is empty"; ok=1; }
+  for s in "${SOURCES[@]}"; do
+    case $(src_type "$s") in pgbackrest|borg|restic|dir) ;; *) echo "unknown type in $s"; ok=1 ;; esac
+    [ -d "$(src_path "$s")" ] || { echo "missing: $(src_path "$s")"; ok=1; }
+  done
+  [ $ok = 0 ] && echo "configuration ok"
+  return $ok
+}
+
+case ${1:-run} in
+  run) run ;;
+  watch) watch ;;
+  check) check ;;
+  *) echo "usage: purser-source [run|watch|check]" >&2; exit 2 ;;
+esac

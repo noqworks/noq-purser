@@ -1,0 +1,5 @@
+# A && B || true is used on purpose for best-effort steps; single quotes hold literal $ for
+# sub-shells and unit files; commas inside array words are option values.
+disable=SC2015,SC2016,SC2054
+external-sources=true
+source-path=SCRIPTDIR

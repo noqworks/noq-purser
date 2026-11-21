@@ -1,0 +1,87 @@
+#!/bin/bash
+# NOQ Purser: box core. Bash and distribution packages only.
+#
+# Nightly and internal:  run [--first-fill] | tick | boot | firstboot | apply-config
+# At the box (code):     clear <id> | pin <id> | disk-on | first-fill | selftest | new-code | shell | setup
+# Without a code:        status | disk-off | notify-test | setup-code (only if none set) | reset-code (always notified)
+set -euo pipefail
+umask 022
+PURSER_LIB=${PURSER_LIB:-/usr/local/lib/purser}
+# shellcheck source=lib/common.sh
+. "$PURSER_LIB/common.sh"
+# shellcheck source=lib/msg.sh
+. "$PURSER_LIB/msg.sh"
+# shellcheck source=lib/notify.sh
+. "$PURSER_LIB/notify.sh"
+# shellcheck source=lib/hw.sh
+. "$PURSER_LIB/hw.sh"
+# shellcheck source=lib/sandbox.sh
+. "$PURSER_LIB/sandbox.sh"
+# shellcheck source=lib/disk.sh
+. "$PURSER_LIB/disk.sh"
+# shellcheck source=lib/signals.sh
+. "$PURSER_LIB/signals.sh"
+# shellcheck source=lib/retention.sh
+. "$PURSER_LIB/retention.sh"
+# shellcheck source=lib/maint.sh
+. "$PURSER_LIB/maint.sh"
+# shellcheck source=lib/night.sh
+. "$PURSER_LIB/night.sh"
+# shellcheck source=lib/code.sh
+. "$PURSER_LIB/code.sh"
+# shellcheck source=lib/status.sh
+. "$PURSER_LIB/status.sh"
+# shellcheck source=lib/selftest.sh
+. "$PURSER_LIB/selftest.sh"
+# shellcheck source=lib/setup.sh
+. "$PURSER_LIB/setup.sh"
+
+load_config
+load_messages
+install -d -m 0700 "$STATE" 2>/dev/null || true
+
+# Boot: relay off, LEDs off, system clock from the DS3231, chrony told whether it may step.
+cmd_boot() {
+  local rtc step
+  relay_set 0; led_set off
+  install -d -m 0755 "$RUN_DIR/chrony.d"
+  rtc=$(rtc_device 2>/dev/null || true)
+  if [ -n "$rtc" ] && hwclock --hctosys -f "$rtc" 2>/dev/null; then
+    log "system clock taken from $rtc: $(date -u +%FT%TZ)"
+    step="maxchange $CLOCK_JUMP_MAX 0 -1"
+  else
+    log "no readable RTC; network time may set the clock once at start"
+    step=$'makestep 1 3\nmaxchange '"$CLOCK_JUMP_MAX"' 3 -1'
+  fi
+  printf '%s\n' "$step" > "$RUN_DIR/chrony.d/step.conf"
+}
+
+case ${1:-} in
+  run)
+    if [ "${2:-}" = --first-fill ]; then
+      night_run first-fill
+      if [ -s "$ST_LAST_PUBLISHED" ]; then
+        setup_mark first_fill "done"
+        if systemd_up; then systemctl enable --now purser.timer >/dev/null 2>&1 || true; fi
+      fi
+    else night_run; fi ;;
+  tick) tick ;;
+  boot) cmd_boot ;;
+  firstboot) cmd_firstboot ;;
+  apply-config) apply_config ;;
+  status) cmd_status ;;
+  clear) cmd_clear "${2:-}" ;;
+  pin) cmd_pin "${2:-}" ;;
+  disk-on) cmd_disk_on ;;
+  disk-off) cmd_disk_off ;;
+  first-fill) cmd_first_fill ;;
+  selftest) if code_is_set; then code_require; fi; cmd_selftest ;;
+  setup) cmd_setup ;;
+  setup-code) cmd_setup_code ;;
+  new-code) cmd_new_code ;;
+  reset-code) cmd_reset_code ;;
+  shell) cmd_shell ;;
+  notify-test) notify test default N_TEST ;;
+  version) say "NOQ Purser $PURSER_VERSION" ;;
+  *) say "$(msg USAGE)"; exit 2 ;;
+esac

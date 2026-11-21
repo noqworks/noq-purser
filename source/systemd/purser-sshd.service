@@ -1,0 +1,23 @@
+[Unit]
+Description=NOQ Purser gate (separate sshd: one user, one address, forced command)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/purser/sshd_config
+
+[Service]
+ExecStartPre=/usr/sbin/sshd -t -f /etc/purser/sshd_config
+ExecStart=/usr/sbin/sshd -D -e -f /etc/purser/sshd_config
+ExecReload=/usr/sbin/sshd -t -f /etc/purser/sshd_config
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+RestartPreventExitStatus=255
+RuntimeDirectory=sshd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+# Second gate in the kernel, next to the host firewall; the box address is added by purser-admit.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

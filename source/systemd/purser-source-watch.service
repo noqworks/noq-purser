@@ -1,0 +1,7 @@
+[Unit]
+Description=NOQ Purser: server-side alerts (no acknowledgement, box outside its window)
+ConditionPathExists=/etc/purser/source.conf
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/sbin/purser-source watch

@@ -1,0 +1,166 @@
+# NOQ Purser ileti kataloğu: Türkçe. ANAHTAR|printf kalıbı. %s sayısı her dilde aynı kalmalı.
+USAGE|kullanım: purser run [--first-fill] | tick | boot | firstboot | apply-config | status | clear <kimlik> | pin <kimlik> | disk-on | disk-off | first-fill | selftest | setup | setup-code | new-code | reset-code | shell | notify-test | version
+ERR_CONFIG_MISSING|Yapılandırma eksik: %s (seri konsolda "setup" çalıştır).
+ERR_BUSY|Başka bir purser işi sürüyor.
+# --- bildirimler ---
+N_NO_GENERATION|Sunucu bu gece nesil üretmedi. Son sağlam yedek: %s. Disk hiç açılmadı.
+N_LIST_FETCH|%s neslinin listesini alamadım.
+N_LIST_REJECTED|Sunucunun %s listesinde kurala uymayan satır var (%s); bu nesli almadım.
+N_TREE_TYPE|%s neslinde dosya ya da dizin olmayan bir şey geldi; nesli almadım. Diski çıkardım.
+N_TREE_MISMATCH|%s neslinin ağacı listeyle tutmuyor; yayımlamadım. Diski çıkardım.
+N_VERIFY_FAILED|%s neslinin geri okuma doğrulaması tutmadı; yayımlamadım. Diski çıkardım.
+N_NO_TIME|Pencerede %s için süre kalmadı; sonraki gece sürer. Diski çıkardım.
+N_PARTIAL|%s dakika doldu, aktarım bitmedi; kalanını sonraki gece alırım. Diski çıkardım.
+N_DONE|Bu gece yedeği aldım, %s GB, %s dakika.%s
+N_WARNING|Bu gece yedeği aldım, %s GB, %s dakika. Uyarı: %s. Sakladım; şüpheli saymadım.%s
+N_SUSPECT|Bu geceki yedek (%s) şüpheli: %s. Sakladım, işaretledim, silmeyi durdurdum.%s
+N_TAIL_DISK_OFF| Diski çıkardım.
+N_TAIL_NONE|
+N_DISK_FULL|Disk doldu; yeni nesil almadım. Şüpheli varken eski nesillerin hiçbiri silinmez.
+N_DELETION_PAUSED|Silme %s gündür duruyor. Şüpheyi kaldırmak için kutunun başına gelmen gerek.
+N_LATE|Son sağlam yedek %s saat önce.
+N_CLOCK_JUMP|Ağdan gelen saat kutunun saatinden %s dakika farklı; kabul etmedim.
+N_DISK_NOT_SEEN|Disk enerjilendi ama USB'de görünmedi.
+N_POWER_NOT_OFF|Diski kapattım ama gerilim düşmedi.
+N_IMAGE_AGE|SD kart imajı %s aylık oldu; yenisini tak.
+N_TIMER_OFF|Gece işi kapalı (purser.timer); açılana kadar yedek almıyorum.
+N_CODE_LOCKED|İşlem kodu %s kez yanlış girildi; konsol %s dakika kilitli.
+N_CODE_RESET|İşlem kodu seri konsoldan sıfırlandı.
+N_MAINT_SHELL|Seri konsolda bakım kabuğu açıldı.
+N_CLEARED|%s neslinin şüphe işareti kutunun başında kaldırıldı.
+N_SMART_FAILED|Diskin SMART sağlık sonucu: %s. Diski değiştirmeyi planla.
+N_SMART_SECTORS|Disk %s yeniden atanmış ve %s bekleyen sektör bildiriyor.
+N_SCRUB_ERRORS|btrfs scrub hata buldu: %s
+N_SCAN_MISMATCH|Tam tarama: %s neslinde listeyle tutmayan %s dosya var (disk bozulması?).
+N_BOX_READY|Kutu açıldı: NOQ Purser %s, son nesil %s.
+N_SETUP_WAITING|Kurulum seri konsolda bekliyor: %s
+N_TEST|Deneme mesajı.
+# --- nedenler (şüphe ve uyarı kodları) ---
+R_SERVER_CLEAN_NO|sunucunun kendi doğrulaması başarısız (clean=no)
+R_SERVER_FRESH_NO|sunucu bir kaynağın bayat olduğunu bildiriyor (fresh=no)
+R_PGB_IMMUTABLE_CHANGED|%s içinde değişmemesi gereken pgBackRest dosyaları değişti
+R_PGB_DELETE_OFFDAY|%s içinde temizlik günü dışında pgBackRest dosyası silindi
+R_PGB_DELETE_IN_LABEL|%s içinde bir pgBackRest yedeğinin içinden tek tek dosya silindi
+R_PGB_DELETE_MID_ARCHIVE|%s içinde arşivin ortasından WAL segmenti silindi
+R_BORG_SEGMENT_CHANGED|%s içinde değişmemesi gereken borg segmentleri değişti
+R_BORG_DELETE_OFFDAY|%s içinde sıkıştırma günü dışında borg segmenti silindi
+R_RESTIC_OBJECT_CHANGED|%s içinde restic nesneleri değişti
+R_RESTIC_DELETE_OFFDAY|%s içinde temizlik günü dışında restic nesnesi silindi
+R_RESTIC_NAME_MISMATCH|%s içinde restic nesneleri içerik özetleriyle tutmuyor
+R_MASS_DELETE|%s: dosyaların yüzde %s'i silindi
+R_MASS_CHANGE|%s: dosyaların yüzde %s'i değişti
+R_LIST_HASH_LIE|sunucunun listesi değişmedi derken %s dosya değişti
+R_SILENT_CHANGE|%s dosya boyutu ve zamanı korunarak değişti
+R_STALE_SOURCE|%s %s gecedir hiç değişmiyor
+R_BIG_TRANSFER|aktarım bu haftanın gününün ortancasının %s katı
+R_LABEL_OLD|%s içindeki en yeni pgBackRest yedeği %s günlük
+# --- son pencere ---
+RUN_TAMAM|nesil alındı ve doğrulandı
+RUN_UYARI|alındı, uyarı var
+RUN_SUPHELI|alındı, şüpheli
+RUN_NO_GENERATION|sunucudan nesil gelmedi
+RUN_LIST_FETCH_FAILED|liste alınamadı
+RUN_LIST_REJECTED|liste reddedildi
+RUN_DISK_ERROR|disk hatası
+RUN_DISK_FULL|disk dolu
+RUN_PARTIAL|aktarım yarım kaldı
+RUN_REJECTED_TREE|ağaç reddedildi (dosya ya da dizin olmayan öğe)
+RUN_TREE_MISMATCH|ağaç listeyle tutmuyor
+RUN_VERIFY_FAILED|doğrulama tutmadı
+# --- durum ---
+S_IMAGE|İmaj %s tarihli (%s önce)
+S_LAST_SOUND|Son sağlam nesil: %s (%s önce)
+S_LAST_SOUND_NONE|Son sağlam nesil: henüz yok
+S_LAST_RUN|Son pencere: %s (%s, %s)
+S_SUSPECT|Şüpheli: %s
+S_NO_SUSPECT|Şüpheli: yok
+S_PAUSED|Silme %s gündür duruyor
+S_PENDING_ACK|Bekleyen onay: %s
+S_DISK|Disk: %s / %s GB dolu (%%%s), ölçüm %s
+S_SMART|SMART: %s, %s saat, %s yeniden atanmış, kalan ömür %%%s (%s)
+S_SMART_NONE|SMART: henüz okunmadı
+S_SCRUB|Son tam scrub: %s
+S_SCRUB_NONE|Son tam scrub: henüz yok
+S_CODE_SET|İşlem kodu: kayıtlı
+S_CODE_NONE|İşlem kodu: yok ("setup-code" çalıştır)
+S_CODE_LOCKED|İşlem kodu: %s dakika daha kilitli
+S_QUEUE|Gönderilmeyi bekleyen bildirim: %s
+S_SENSE|Disk gerilim ölçümü: %s
+T_HOURS|%s saat
+T_DAYS|%s gün
+# --- işlem kodu ---
+P_CODE|İşlem kodu: 
+P_CODE_BACK|Doğrulamak için kodu yeniden yaz: 
+E_NO_CODE|Henüz işlem kodu yok. "setup-code" çalıştır.
+E_CODE_LOCKED|Kilitli. %s dakika sonra yeniden dene.
+E_CODE_TYPO|Bu geçerli bir kod değil (sağlama rakamı). Sayılmadı; yeniden dene.
+E_CODE_WRONG|Yanlış kod.
+E_CODE_BACK|Yeniden yazılan kod tutmuyor; hiçbir şey kaydedilmedi.
+E_CODE_EXISTS|İşlem kodu zaten var; "new-code" kullan.
+C_SHOW|İŞLEM KODU (şimdi kâğıda yaz; yalnız bir kez gösterilir):
+C_SHOW_HINT|Kutunun üstüne yapıştırma. Bilinçli işlem kilididir, disk parolası değildir.
+C_STORED|İşlem kodu kaydedildi (yalnız argon2id özeti tutulur).
+C_RESET_WARN|İşlem kodunu sıfırlamak her zaman bildirim gönderir.
+P_RESET_CONFIRM|Devam etmek için RESET yaz: 
+# --- komutlar ---
+E_ABORTED|Vazgeçildi.
+E_USAGE_ID|kullanım: %s <nesil kimliği>
+C_SUSPECT_REASONS|%s neden şüpheli:
+P_CLEAR_CONFIRM|Şüphe işaretini kaldırmak için CLEAR yaz: 
+E_NOT_SUSPECT|%s şüpheli olarak işaretli değil.
+I_PINNED|%s sabitlendi; hiçbir zaman otomatik silinmez.
+E_NO_GENERATION|Diskte %s nesli yok.
+I_DISK_ON|Disk açık, %s altında bağlı; %s dakikada kendiliğinden kapanır (ya da "disk-off").
+I_FIRST_FILL_STARTED|İlk dolum arka planda başladı; "status" ile izle (günlük: purser-first-fill).
+E_DISK_OPEN|Disk kullanımda; önce "disk-off" çalıştır.
+# --- öz sınama ---
+ST_TITLE|Donanım öz sınaması
+ST_SENSE_OFF|röle kapalıyken gerilim ölçümü 0
+ST_SENSE_ON|röle açıkken gerilim ölçümü 1
+ST_DISK_SEEN|disk USB'de görünüyor
+ST_DISK_SEEN_USB|bir USB disk görünüyor (%s)
+ST_USB_SPEED|USB bağlantı hızı %s Mbit/s (480 beklenir)
+ST_SENSE_DROP|röle açılınca gerilim düşüyor
+ST_LEDS|LED'ler: yeşil, kırmızı, ikisi, sönük (izle)
+ST_RTC|DS3231 %s üzerinde, sistem saatinden %s sn farklı
+ST_RTC_NONE|DS3231 I2C'de bulunamadı (0x68)
+ST_RESULT|Öz sınama bitti, %s hata.
+# --- kurulum ---
+W_TITLE|NOQ Purser kurulumu. Enter köşeli parantezdeki değeri korur.
+W_LANG|Dil (en/tr)
+W_SERVER|Sunucu kapısının adresi (IPv4)
+W_PORT|Sunucu kapısının portu
+W_KINDS|Kaynaklar (tür:dizin ...)
+W_NIGHT|İlk soru saati (SS:DD)
+W_POLL_UNTIL|Sormayı bırakma saati (SS:DD)
+W_RELAY|Röle 3 saniye açılacak. Tık sesini dinle, disk LED'ini izle.
+W_RELAY_OK|Röle tıkladı, disk LED'i yanıp sonra söndü mü
+W_RELAY_INVERTED|Ters röle mantığıyla yeniden deniyorum.
+E_RELAY|Röle beklendiği gibi çalışmıyor; bağlantısını denetle, kurulumu yeniden çalıştır.
+W_SENSE_ZERO|Uyarı: röle açıkken gerilim ölçümü 1 okumadı.
+W_PUBKEY|Kutuyu kabul etmek için sunucuda (root olarak) şunu çalıştır:
+P_ENTER|Bitince Enter: 
+E_GATE_UNREACHABLE|%s:%s kapısı henüz yanıt vermiyor; kurulumu sonra yeniden çalıştır.
+W_FINGERPRINT|Kapının ana bilgisayar anahtarı parmak izi: %s
+W_FINGERPRINT_OK|purser-admit'in yazdığıyla aynı mı
+I_GATE_OK|Kapı yanıt veriyor.
+E_GATE_LATEST|Kapı "latest" isteğine yanıt vermedi (anahtar kabul edildi mi? nesil var mı?).
+W_NTFY|ntfy sunucusu
+W_NTFY_SUBSCRIBE|ntfy uygulamasında bu adrese abone ol (yalnız alarm): %s
+W_DISK_NEW|YENİ disk şimdi hazırlansın mı (üzerindeki her şey silinir)
+W_DISK_HAS_DATA|%s üzerinde veri ya da LUKS başlığı var.
+P_ERASE|%s silinsin diye ERASE yaz: 
+E_DISK_CONFIGURED|Zaten bir disk yapılandırılmış (%s).
+E_NO_USB_DISK|USB disk görünmedi.
+E_ONE_DISK|Tam olarak bir USB disk bağlı olmalı.
+I_CIPHER|şifre: %s
+C_RECOVERY|DİSK KURTARMA PAROLASI (kâğıda yaz; yalnız bir kez gösterilir):
+P_RECOVERY_BACK|Kâğıda yazdıktan sonra son dört karakterini gir: 
+E_RECOVERY_BACK|Tutmuyor; kâğıdı denetle. Parola diske zaten eklendi.
+I_DISK_READY|Disk hazır. LUKS başlık yedeği: %s (kâğıt paket için USB belleğe kopyala).
+E_NO_KEY|%s yolunda disk anahtarı yok (önce eski karttan taşı).
+E_KEY_NO_DISK|Anahtar bağlı disklerin hiçbirini açmıyor.
+E_NOT_PURSER_DISK|Disk açılıyor ama NOQ Purser düzeni yok.
+I_ADOPTED|Disk sahiplenildi: %s günlük ve %s uzun saklama nesli, son yayımlanan %s.
+E_SERVER_IP|SERVER bir IPv4 adresi olmalı.
+W_DONE|Kurulum bitti. Eksik kalan: %s

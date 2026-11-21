@@ -1,0 +1,3 @@
+# NOQ Purser: no USB input device is ever accepted (keyboard injection through a front port).
+# This release has no FIDO support, so every HID interface is de-authorized.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", ATTR{authorized}="0"
