@@ -1,27 +1,28 @@
 #!/usr/sbin/nft -f
 # NOQ Purser box firewall (rendered by "purser apply-config" from purser.conf).
-# Nothing comes in. Out: the server gate (one address, one port), the two configured DNS
-# resolvers, NTP, DHCP, and HTTPS only to the addresses of the notification host, which the
-# core re-resolves into @bildirim before every send.
+# Nothing comes in. Out: the server gate (one address, one port), the configured DNS resolvers,
+# NTP and DHCP. The maint_in / maint_out chains are filled by purser-maint only while the
+# maintenance switch is on (the local subnet may reach the page and SSH), and emptied when it is off.
 flush ruleset
 table inet purser {
-  set bildirim { type ipv4_addr; }
+  chain maint_in { }
+  chain maint_out { }
   chain input {
     type filter hook input priority 0; policy drop;
     iif lo accept
     ct state established,related accept
     udp sport 67 udp dport 68 accept
-    @MAINT_SSH_RULE@
+    jump maint_in
   }
   chain output {
     type filter hook output priority 0; policy drop;
     oif lo accept
     ct state established,related accept
-    ip daddr @SERVER@ tcp dport @SERVER_PORT@ accept
-    ip daddr { @DNS_SERVERS@ } meta l4proto { tcp, udp } th dport 53 accept
+    @SERVER_RULE@
+    @DNS_RULE@
     udp dport 123 accept
     udp sport 68 udp dport 67 accept
-    ip daddr @bildirim tcp dport 443 accept
+    jump maint_out
   }
   chain forward {
     type filter hook forward priority 0; policy drop;

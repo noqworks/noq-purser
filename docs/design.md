@@ -223,26 +223,32 @@ e.g. the router, and `NTP_POOL`), never from the protected server.
 ## Network
 
 nftables drops everything incoming (only DHCP replies and replies to the box's own connections).
-Out, only: the server gate (one address, one port), the two configured DNS resolvers
-(`DNS_SERVERS`; not the local network's resolver, which may be the server), NTP, DHCP, and HTTPS
-to the notification host. The notification host is resolved again before every send and the
-nftables set refreshed. Maintenance SSH exists only when `MAINT_SSH_FROM` is set (key only, from
-that address). There is no rule for package downloads: after installation the box cannot fetch
-code or packages. Wi-Fi and Bluetooth modules are blacklisted; wired only.
+Out, only: the server gate (one address, one port), NTP (`NTP_SERVERS`, by default the router),
+DHCP and, when configured, DNS (`DNS_SERVERS`, empty by default: the box needs no names). There is
+no rule for package downloads: after installation the box cannot fetch code or packages. Wi-Fi and
+Bluetooth modules are blacklisted; wired only.
+
+While the maintenance switch is on (`purser-maint`, a GPIO input), two extra chains open the page
+(HTTPS 443) and SSH (22, key only, only if a key came on the card) to the local network, and mDNS
+announces `<id>.local`. Off, or the watcher dying, empties those chains and stops the services.
+A reminder goes out every two hours while it stays on.
 
 ## Notifications
 
 Only alarms (everything except "done"; "done" goes to the log and to the server as the
-acknowledgement). Channel: `curl` to ntfy (default; your own ntfy server or ntfy.sh) or a plain
-webhook POST. The address and token live in `/etc/purser/sirlar/bildirim` (root only). Messages
-carry only state the core produced (catalog text, numbers, generation ids, reason codes); never a
-file name, path, note or content from the server. Undeliverable notifications are queued and
-retried hourly (newest 50). Language: `LANG_UI=en|tr`.
+acknowledgement). They go back through the same gate: `note <event>`, a fixed alphabet
+(`[a-z_]`, at most 32 characters); the server records them and raises them with its `ALERT_CMD`.
+The text stays on the box (log, page): it carries only state the core produced (catalog text,
+numbers, generation ids, reason codes), never a file name, path, note or content from the server.
+Until the box is paired, or while the gate cannot be reached, alarms are queued and retried hourly
+(newest 50). No third-party service and no internet. Language: `LANG_UI=en|tr`.
 
 ## At the box
 
-There is no screen and no button. The state is in `status` (serial console), in notifications
-and on the board LED. The serial console runs the restricted `purser-console` instead of a login:
+There is no screen. The state is on the LED stick (see [hardware.md](hardware.md)), on the page at
+`https://<id>.local` while the maintenance switch is on (its actions ask for the operation code) and
+in `status`. The serial console, for those who use it, runs the restricted `purser-console`
+instead of a login:
 
 | Command | Code | Does |
 | --- | --- | --- |

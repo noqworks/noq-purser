@@ -4,6 +4,7 @@
 # Nightly and internal:  run [--first-fill] | tick | boot | firstboot | apply-config
 # At the box (code):     clear <id> | pin <id> | disk-on | first-fill | selftest | new-code | shell | setup
 # Without a code:        status | disk-off | notify-test | setup-code (only if none set) | reset-code (always notified)
+# Page and switch:       pair <token> | check-code (code on stdin) | selftest-nocode | notify-maint on|off|still-on | light <state>
 set -euo pipefail
 umask 022
 PURSER_LIB=${PURSER_LIB:-/usr/local/lib/purser}
@@ -35,6 +36,8 @@ PURSER_LIB=${PURSER_LIB:-/usr/local/lib/purser}
 . "$PURSER_LIB/selftest.sh"
 # shellcheck source=lib/setup.sh
 . "$PURSER_LIB/setup.sh"
+# shellcheck source=lib/pair.sh
+. "$PURSER_LIB/pair.sh"
 
 load_config
 load_messages
@@ -46,6 +49,7 @@ install -d -m 0700 "$STATE" 2>/dev/null || true
 cmd_boot() {
   install -d -m 0755 "$RUN_DIR/chrony.d"
   printf 'makestep 1 3\nmaxchange %s 3 -1\n' "$CLOCK_JUMP_MAX" > "$RUN_DIR/chrony.d/step.conf"
+  rtc_boot
   led_update
 }
 
@@ -75,6 +79,13 @@ case ${1:-} in
   reset-code) cmd_reset_code ;;
   shell) cmd_shell ;;
   notify-test) notify test default N_TEST ;;
+  pair) cmd_pair "${2:-}" ;;
+  check-code) cmd_check_code ;;
+  selftest-nocode) cmd_selftest ;;
+  notify-maint) cmd_notify_maint "${2:-}" "${3:-}" ;;
+  light) light_set "${2:-off}" "${3:-}" ;;
+  rtc-set) cmd_rtc_set "${2:-}" "${3:-}" ;;
+  clock-source) clock_source ;;
   version) say "NOQ Purser $PURSER_VERSION" ;;
   *) say "$(msg USAGE)"; exit 2 ;;
 esac

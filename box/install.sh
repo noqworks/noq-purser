@@ -10,8 +10,9 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=""
-PACKAGES=(rsync openssh-client openssh-server btrfs-progs cryptsetup-bin curl ca-certificates nftables chrony
-          util-linux util-linux-extra argon2 smartmontools kmod udev)
+PACKAGES=(rsync openssh-client openssh-server btrfs-progs cryptsetup-bin nftables chrony
+          util-linux util-linux-extra argon2 smartmontools kmod udev usbutils
+          python3 gpiod openssl avahi-daemon)
 case ${1:-} in
   --packages) printf '%s\n' "${PACKAGES[@]}"; exit 0 ;;
   --root) ROOT=$(readlink -f "${2:?image root}") ;;
@@ -46,10 +47,16 @@ install -m 0644 "$HERE"/messages/en "$HERE"/messages/tr "$LIB/messages/"
 install -m 0644 "$HERE"/templates/*.in "$LIB/templates/"
 install -m 0644 "$HERE/purser.conf.example" "$LIB/purser.conf.example"
 install -m 0755 "$HERE/purser-verify" "$LIB/purser-verify"
-install -m 0755 "$HERE/purser" "$HERE/purser-console" "$ROOT/usr/local/sbin/"
+install -m 0755 "$HERE/purser" "$HERE/purser-console" "$HERE/purser-light" "$HERE/purser-maint" "$HERE/purser-ui" "$ROOT/usr/local/sbin/"
+install -d -m 0755 "$LIB/ui"
+install -m 0644 "$HERE"/ui/* "$LIB/ui/"
+printf '%s\n' "$(sed -n 's/^PURSER_VERSION=//p' "$HERE/lib/common.sh")" > "$LIB/version"
 install -m 0755 "$HERE/../image/purser-card-migrate" "$ROOT/usr/local/sbin/" 2>/dev/null || true
 install -m 0644 "$HERE"/systemd/*.service "$HERE"/systemd/*.timer "$ROOT/etc/systemd/system/"
-install -d "$ROOT/etc/udev/rules.d" "$ROOT/etc/modprobe.d"
+install -d "$ROOT/etc/udev/rules.d" "$ROOT/etc/modprobe.d" "$ROOT/etc/ssh/sshd_config.d"
+# maintenance SSH (only while the switch is on): keys only, no passwords
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\nX11Forwarding no\n' \
+  > "$ROOT/etc/ssh/sshd_config.d/10-purser.conf"
 install -m 0644 "$HERE/conf/purser-usb.rules" "$ROOT/etc/udev/rules.d/90-purser-usb.rules"
 install -m 0644 "$HERE/conf/purser-wireless.conf" "$ROOT/etc/modprobe.d/purser-wireless.conf"
 
@@ -65,11 +72,14 @@ printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty -n -l /usr/local/sbin/pur
   > "$ROOT/etc/systemd/system/serial-getty@$SERIAL_TTY.service.d/purser.conf"
 
 if [ -n "$ROOT" ]; then
-  root_systemctl enable purser-boot.service purser-firstboot.service "serial-getty@$SERIAL_TTY.service" >/dev/null
-  root_systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
-  root_systemctl mask ssh.service getty@tty1.service >/dev/null 2>&1 || true
+  root_systemctl enable purser-boot.service purser-firstboot.service purser-light.service purser-maint.service "serial-getty@$SERIAL_TTY.service" >/dev/null
+  # SSH, the page and the .local name run only while the maintenance switch is on (purser-maint)
+  root_systemctl disable ssh.service ssh.socket avahi-daemon.service avahi-daemon.socket >/dev/null 2>&1 || true
+  root_systemctl mask getty@tty1.service >/dev/null 2>&1 || true
 else
   systemctl daemon-reload
-  systemctl enable purser-boot.service purser-firstboot.service >/dev/null
+  systemctl enable purser-boot.service purser-firstboot.service purser-light.service >/dev/null
+  # purser-maint is enabled by the image (and by "purser setup"); on a running system enabling it
+  # here would close SSH as soon as the switch reads "off": enable it yourself when you are at the box.
   echo "Installed. Next: purser setup (on the serial console), or reboot to run the first-boot service."
 fi

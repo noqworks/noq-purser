@@ -1,56 +1,23 @@
-# NOQ Purser: optional unattended first boot. Copy this file, fill it in and embed it:
-#     image/build-image.sh --setup-conf my-setup.conf
-# The box reads it once at first boot (/etc/purser/setup.conf), writes purser.conf and the
-# notification secret from it, and then shreds it. Every value below is an example.
-# Without this file the first boot waits for "setup" on the serial console.
-#
-# A NEW disk is always prepared at the serial console ("setup"): its recovery passphrase is
-# shown exactly once and must be written on paper. Unattended first boot can only ADOPT a disk,
-# with the key moved from the old card (image/purser-card-migrate).
+# NOQ Purser: first boot settings. Normally image/purser-setup writes this file onto the card's
+# setup partition (PURSERSET) together with the one-time secrets; it is shown here for reference
+# and for image/build-image.sh --setup-conf (an image for many boxes: no BOX_ID, no PREPARE_DISK).
+# The box reads it once at first boot, writes /etc/purser/purser.conf from it and erases it.
+# Pairing with the server is not set here: "purser pair" on the server, QR code on the box page.
 
-# --- server gate ---
-SERVER="192.0.2.10"              # IPv4 address of the gate on the protected server
-SERVER_PORT="2222"               # port given to source/install.sh --port
-SERVER_USER="purser"
-# Fingerprint printed by source/install.sh / purser-admit ("SHA256:..."). The box accepts the
-# gate's host key unattended only when it matches; otherwise it waits for "setup".
-SERVER_HOSTKEY_FP="SHA256:exampleexampleexampleexampleexampleexample00"
-
-# --- sources inside each generation: type:directory[:prune days] ---
-KINDS="pgbackrest:pgbackrest borg:borg:7"
-
-# --- window ---
-NIGHT_AT="05:15"
-POLL_UNTIL="08:30"
-POLL_EVERY="300"
-MAX_MIN="80"
-LONG_DOW="7"
-# PRUNE_DOW="7"
-
-# --- notifications: ntfy (default) or a plain webhook ---
-NOTIFY_KIND="ntfy"
-NTFY_SERVER="https://ntfy.example.org"
-# NTFY_TOPIC=""                  # empty: a random topic is generated (shown by "status"/"setup")
-# NTFY_TOKEN=""
-# NOTIFY_KIND="webhook"
-# WEBHOOK_URL="https://hooks.example.org/purser"
-# WEBHOOK_TOKEN=""
-
-# --- language, time zone ---
+BOX_ID="K7RT"                    # 4 characters A-Z/2-9 without I L O; empty = the box picks one
 LANG_UI="en"                     # en | tr
-TZ="Europe/Berlin"               # only for local display; generation ids are UTC
+TZ="Europe/Istanbul"             # display only; generation ids are UTC
 
 # --- network (wired only) ---
-NET_ADDRESS="192.0.2.15/24"      # empty = DHCP
-NET_GATEWAY="192.0.2.1"
-DNS_SERVERS="1.1.1.1 9.9.9.9"    # never the protected server
-NTP_SERVERS="192.0.2.1"          # e.g. the router; plus the pool below
-NTP_POOL="pool.ntp.org"
-MAINT_SSH_FROM=""                # empty = no SSH server on the box at all
+NET_ADDRESS=""                   # empty = DHCP; or e.g. "192.168.2.200/24"
+NET_GATEWAY=""
+NTP_SERVERS="gateway"            # gateway = the router; or addresses. No internet pool by default.
+DNS_SERVERS=""                   # empty: the box needs no name resolution
 
-# --- hardware ---
-BOARD_LED="auto"                 # auto | none | name under /sys/class/leds
-SERIAL_TTY="ttyS0"
+# --- light (NeoPixel stick on SPI) ---
+LIGHT_KIND="rgbw"                # rgbw | rgb
+LIGHT_BRIGHTNESS="0.35"
 
-# --- disk ---
-DISK_MODE="adopt"                # adopt (key moved from the old card) | new (needs the console)
+# --- disk: erased and prepared only when this equals BOX_ID (purser-setup asks you to type it);
+#     needs recovery.once (the passphrase you wrote on paper) next to this file ---
+# PREPARE_DISK="K7RT"

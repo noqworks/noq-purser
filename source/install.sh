@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
 done
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 SHARE=$PREFIX/share/noq-purser
-UNITS=(purser-source.service purser-source.timer purser-source-watch.service purser-source-watch.timer purser-sshd.service)
+UNITS=(purser-source.service purser-source.timer purser-source-watch.service purser-source-watch.timer purser-source-notes.service purser-source-notes.path purser-sshd.service)
 step() { printf '== %s\n' "$*"; }
 
 if [ $UNINSTALL = 1 ]; then
@@ -34,7 +34,7 @@ if [ $UNINSTALL = 1 ]; then
   rm -rf /etc/systemd/system/purser-sshd.service.d
   systemctl daemon-reload
   step "removing programs"
-  rm -f "$PREFIX"/sbin/purser-source "$PREFIX"/sbin/purser-gate "$PREFIX"/sbin/purser-admit; rm -rf "$SHARE"
+  rm -f "$PREFIX"/sbin/purser-source "$PREFIX"/sbin/purser-gate "$PREFIX"/sbin/purser-admit "$PREFIX"/sbin/purser-pair "$PREFIX"/sbin/purser; rm -rf "$SHARE"
   if [ -d /etc/purser ]; then
     keep=/etc/purser.removed-$(date -u +%Y%m%dT%H%M%SZ)
     mv /etc/purser "$keep"; echo "configuration moved to $keep"
@@ -62,6 +62,11 @@ if [ ${#need[@]} -gt 0 ]; then
       || { apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "${need[@]}"; }
   else echo "missing packages: ${need[*]}" >&2; exit 1; fi
 fi
+# optional: the pairing QR code in the terminal (without it "purser pair" shows the line only)
+if ! command -v qrencode >/dev/null && [ $DEPS = 1 ] && command -v apt-get >/dev/null; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends qrencode >/dev/null 2>&1 \
+    || echo "note: qrencode not installed; purser pair will show the pairing line without a QR code"
+fi
 RRSYNC=$(command -v rrsync || true)
 if [ -n "$RRSYNC" ] && head -1 "$RRSYNC" | grep -q python && ! command -v python3 >/dev/null; then
   echo "rrsync needs python3, which is missing" >&2; exit 1
@@ -80,10 +85,17 @@ usermod -p '*' "$GATE_USER"
 step "programs"
 install -d -m 0755 "$PREFIX/sbin" "$SHARE"
 # install(1) replaces an existing symlink instead of writing through it
-install -m 0755 "$HERE/purser-source" "$HERE/purser-admit" "$PREFIX/sbin/"
+install -m 0755 "$HERE/purser-source" "$HERE/purser-admit" "$HERE/purser-pair" "$PREFIX/sbin/"
+install -m 0755 "$HERE/purser" "$PREFIX/sbin/purser"
 sed "s|^RRSYNC=.*|RRSYNC=\${RRSYNC:-$RRSYNC}|" "$HERE/purser-gate" > "$PREFIX/sbin/purser-gate.new"
 chmod 0755 "$PREFIX/sbin/purser-gate.new"; mv -f "$PREFIX/sbin/purser-gate.new" "$PREFIX/sbin/purser-gate"
 install -m 0644 "$HERE/sshd_config.in" "$HERE/source.conf.example" "$SHARE/"
+# a copy of this installer and its files, so "purser install" can run again from the installed system
+if [ "$HERE" != "$SHARE" ]; then
+  install -m 0755 "$HERE/install.sh" "$HERE/purser-source" "$HERE/purser-gate" "$HERE/purser-admit" "$HERE/purser-pair" "$HERE/purser" "$SHARE/"
+  install -d "$SHARE/systemd"; install -m 0644 "$HERE"/systemd/* "$SHARE/systemd/"
+fi
+printf '%s\n' "${PURSER_VERSION:-1.0.0}" > "$SHARE/version"
 cp -r "$HERE/examples" "$SHARE/"
 
 step "configuration"
@@ -115,7 +127,7 @@ for u in "${UNITS[@]}"; do
   mv -f "/etc/systemd/system/.$u.new" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
-systemctl enable --now purser-source-watch.timer >/dev/null
+systemctl enable --now purser-source-watch.timer purser-source-notes.path >/dev/null
 if "$PREFIX/sbin/purser-source" check >/dev/null 2>&1; then
   systemctl enable --now purser-source.timer >/dev/null; echo "purser-source.timer enabled ($TIMER_AT)"
 else
@@ -137,4 +149,5 @@ case $(command -v ufw >/dev/null && ufw status 2>/dev/null | head -1) in
      else echo "firewall: none detected"; fi ;;
 esac
 echo "gate host key: $(ssh-keygen -lf /etc/purser/ssh/ssh_host_ed25519_key.pub)"
-echo "next: when the box shows its key, run  purser-admit <box-ip> '<key>'"
+echo "next: sudo purser pair   (shows a QR code for the box page; boxes already paired stay admitted)"
+"$PREFIX/sbin/purser-admit" render >/dev/null 2>&1 || true

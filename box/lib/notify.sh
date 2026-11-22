@@ -12,7 +12,7 @@ notify() {
   for a in "$@"; do args+=("$(printf '%s' "$a" | tr -d '\000-\037\177|' | cut -c1-400)"); done
   text=$(msg "$key" "${args[@]}")
   text=$(printf '%s' "$text" | tr -d '\r\n|')
-  log "notify $event: $text"
+  log "notify $event ($prio): $text"
   notify_send "$event" "$prio" "$text" && return 0
   notify_queue "$event" "$prio" "$text"
 }
@@ -37,48 +37,13 @@ notify_flush() {
   if [ ${#rest[@]} -eq 0 ]; then rm -f "$ST_NOTIFY_QUEUE"; else printf '%s\n' "${rest[@]}" > "$ST_NOTIFY_QUEUE"; fi
 }
 
-# The secrets file holds NTFY_URL / NTFY_TOKEN or WEBHOOK_URL / WEBHOOK_TOKEN. It is parsed, not sourced.
-secret_get() { [ -r "$NOTIFY" ] || return 0; sed -n "s/^$1=//p" "$NOTIFY" | tail -1 | sed "s/^['\"]//; s/['\"]$//"; }
-
+# The alarm goes to the server, over the same gate the box uses every night: "note <event>".
+# The server raises it with its own ALERT_CMD. No third-party service, no internet: the box can
+# only reach the gate. Only the event name travels (a fixed alphabet); the text stays in the box
+# log and on the page. Until the box is paired there is nowhere to send to: the note is queued.
 notify_send() {   # notify_send <event> <priority> <text>; 0 = delivered
-  local event=$1 prio=$2 text=$3 url token host re code
-  [ -r "$NOTIFY" ] || { log "no notification channel configured"; return 1; }
-  case $prio in default|high|urgent) ;; *) prio=default ;; esac
-  case $NOTIFY_KIND in
-    webhook) url=$(secret_get WEBHOOK_URL); token=$(secret_get WEBHOOK_TOKEN)
-             re='^https://([a-z0-9.-]+)(/[A-Za-z0-9._~%/-]*)?$' ;;
-    *)       url=$(secret_get NTFY_URL); token=$(secret_get NTFY_TOKEN)
-             re='^https://([a-z0-9.-]+)/[A-Za-z0-9_-]{1,64}$' ;;
-  esac
-  [[ $url =~ $re ]] || { log "notification address is not valid"; return 1; }
-  host=${BASH_REMATCH[1]}
-  [[ $token =~ ^[A-Za-z0-9._~+/=-]*$ ]] || { log "notification token has invalid characters"; return 1; }
-  notify_allow_host "$host"
-  local h=()
-  [ -n "$NOTIFY_CA" ] && h+=(--cacert "$NOTIFY_CA")
-  [ -n "$token" ] && h+=(-H "Authorization: Bearer $token")
-  if [ "$NOTIFY_KIND" = webhook ]; then
-    h+=(-H "Content-Type: text/plain; charset=utf-8" -H "X-Purser-Event: $event" -H "X-Purser-Priority: $prio")
-  else
-    h+=(-H "Title: NOQ Purser" -H "Priority: $prio" -H "Tags: floppy_disk")
-  fi
-  # A 2xx answer means delivered, even if the connection then ends untidily (curl exit != 0):
-  # queueing it as well would send the alarm twice.
-  code=$(curl -sS --proto =https --max-time 20 -o /dev/null -w '%{http_code}' "${h[@]}" --data-binary "$text" "$url" 2>/dev/null || true)
-  [[ $code =~ ^2[0-9][0-9]$ ]] && return 0
-  log "notification not delivered (http $code)"
-  return 1
-}
-
-# The box runs for months; the address is resolved again before every send and the nftables
-# set is refreshed, so a changed address is followed and nothing else is allowed out on 443.
-notify_allow_host() {
-  command -v nft >/dev/null 2>&1 || return 0
-  nft list set inet "$NFT_TABLE" "$NFT_NOTIFY_SET" >/dev/null 2>&1 || return 0
-  local ip
-  nft flush set inet "$NFT_TABLE" "$NFT_NOTIFY_SET" 2>/dev/null || true
-  for ip in $(getent ahostsv4 "$1" | awk '{ print $1 }' | sort -u); do
-    [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || continue
-    nft add element inet "$NFT_TABLE" "$NFT_NOTIFY_SET" "{ $ip }" 2>/dev/null || true
-  done
+  local event=$1
+  [ -n "$SERVER" ] && [ -s "$SSH_DIR/known_hosts" ] || return 1
+  [[ $event =~ ^[a-z_]{1,32}$ ]] || event=other
+  remote note "$event" < /dev/null > /dev/null 2>&1
 }

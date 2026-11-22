@@ -10,6 +10,14 @@ check() { if "${@:2}" >/dev/null 2>&1; then echo "  ok    $1"; else echo "  FAIL
 for f in /usr/local/sbin/purser /usr/local/sbin/purser-console /usr/local/lib/purser/purser-verify /usr/local/lib/purser/*.sh; do
   check "bash -n ${f##*/}" bash -n "$f"
 done
+for f in /usr/local/sbin/purser-light /usr/local/sbin/purser-maint /usr/local/sbin/purser-ui; do
+  check "python compiles ${f##*/}" python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f"
+done
+check "page present" test -s /usr/local/lib/purser/ui/index.html
+check "QR decoder present" test -s /usr/local/lib/purser/ui/jsqr.min.js
+check "units enabled: light, switch" sh -c 'test -L /etc/systemd/system/multi-user.target.wants/purser-light.service && test -L /etc/systemd/system/multi-user.target.wants/purser-maint.service'
+check "ssh and avahi start only with the switch" sh -c '! test -L /etc/systemd/system/multi-user.target.wants/ssh.service && ! test -L /etc/systemd/system/multi-user.target.wants/avahi-daemon.service'
+check "python3 runs" python3 -c "import ssl, http.server, ipaddress, shlex"
 check "purser version" sh -c '/usr/local/sbin/purser version | grep -q "^NOQ Purser "'
 check "purser version in Turkish catalog" sh -c 'grep -q "^USAGE|" /usr/local/lib/purser/messages/tr'
 
@@ -46,8 +54,9 @@ for p in User Group ProtectSystem ProtectHome PrivateTmp PrivateDevices NoNewPri
 done
 
 # every tool the core calls
-for b in rsync ssh ssh-keygen ssh-keyscan btrfs cryptsetup curl nft chronyc argon2 smartctl flock setpriv timeout \
-         udevadm mountpoint systemd-run sha256sum dd shred agetty mkfs.btrfs wipefs blockdev netplan; do
+for b in rsync ssh ssh-keygen ssh-keyscan btrfs cryptsetup nft chronyc argon2 smartctl flock setpriv timeout \
+         udevadm mountpoint systemd-run sha256sum dd shred agetty mkfs.btrfs wipefs blockdev netplan \
+         python3 gpioget gpiodetect openssl avahi-daemon lsusb blkid; do
   check "tool $b" command -v "$b"
 done
 check "argon2 runs" sh -c 'printf 123456789012 | argon2 00112233445566778899aabbccddeeff -id -t 1 -m 10 -p 1 -e | grep -q "^.argon2id.v=19"'

@@ -9,22 +9,29 @@ last_sound_age_h() {
   echo $(( ( $(now) - $(id_epoch "$s") ) / 3600 ))
 }
 
+# One colour, one meaning (MIMARI §8). Priority: suspect > fault > (code lock: drawn by purser-light)
+# > warning > pulling / checking (set by the nightly job while it runs) > done > ready.
 led_update() {
   local result age
   result=$(kv_get "$ST_LAST_RUN" result)
-  if ! age=$(last_sound_age_h); then led_show setup; return 0; fi
-  if [ -s "$ST_SUSPECT_FLAG" ]; then led_show alarm; return 0; fi
+  if [ -z "$SERVER" ] || [ -z "$LUKS_UUID" ] || [ "$(kv_get "$ST_SETUP" state)" != "done" ]; then
+    led_show setup; light_set unpaired; return 0
+  fi
+  if [ -s "$ST_SUSPECT_FLAG" ]; then led_show alarm; light_set suspect; return 0; fi
   case $result in
-    list_rejected|rejected_tree|tree_mismatch|verify_failed|disk_error|disk_full|list_fetch_failed) led_show alarm; return 0 ;;
+    list_rejected|rejected_tree|tree_mismatch) led_show alarm; light_set suspect; return 0 ;;
+    verify_failed|disk_error|disk_full|list_fetch_failed) led_show alarm; light_set fault; return 0 ;;
   esac
+  if ! age=$(last_sound_age_h); then led_show setup; light_set ready; return 0; fi
   if [ "$age" -ge "$LATE_H" ] || [ "$result" = uyari ] || [ "$result" = partial ] || [ "$result" = no_generation ] \
      || [ "$result" = clock_untrusted ]; then
-    led_show warn
+    led_show warn; light_set warning
+  elif [ "$age" -lt 20 ]; then
+    led_show ok; light_set 'done'
   else
-    led_show ok
+    led_show ok; light_set ready
   fi
 }
-
 systemd_up() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 
 tick() {
@@ -75,7 +82,7 @@ clock_check() {   # prints the state
 clock_notify() {   # clock_notify <state>
   case $1 in
     jump) notify clock_jump high N_CLOCK_JUMP "$(( $(awk '{ print $2 }' "$RUN_DIR/clock.jump" 2>/dev/null || echo 0) / 60 ))" ;;
-    disagree) notify clock_jump high N_CLOCK_DISAGREE "$(( $(chrony_worst_offset) / 60 ))" ;;
+    disagree) notify clock_jump high N_CLOCK_DISAGREE "$(( $(cat "$RUN_DIR/clock.diff" 2>/dev/null || chrony_worst_offset) / 60 ))" ;;
     unsynced) notify clock_unsynced default N_CLOCK_UNSYNCED ;;
     early) notify clock_unsynced high N_CLOCK_EARLY ;;
   esac

@@ -2,44 +2,71 @@
 
 [Türkçe](hardware.tr.md)
 
-The box is three parts. Nothing is soldered, cut or wired.
+## Parts
 
-| Part | Reference | Notes |
+| Part | Qty | Note |
 | --- | --- | --- |
-| Board | Orange Pi Zero 3 (Allwinner H618, 1 GB RAM or more, gigabit Ethernet) | The image in `image/` is built for this board. The software itself is Bash on Debian and runs on other boards too, with your own image. |
-| Cable | An ordinary USB-SATA cable or adapter for 2.5" drives, unmodified, in the board's USB-A port | It powers the drive from USB. It should pass SMART through (SAT); the self-test checks that. |
-| Disk | 2.5" SATA SSD | The disk is powered around the clock; an SSD is recommended. Size: see "Rough disk size" in [design.md](design.md). |
+| Orange Pi Zero 3 | 1 | 1 GB of memory is enough. Wi-Fi is not used. |
+| 2.5" SATA SSD | 1 | At least twice the total size of your backups. We used 4 TB and took the board out of its case to save space. |
+| USB-SATA bridge board | 1 | The board inside an ordinary USB-SATA cable. The cable is cut and the wires are soldered straight to the board. |
+| microSD card | 1 | 8 GB or larger. |
+| 5 V 3 A USB-C power adapter | 1 | A computer's USB port is not enough; the disk draws a high current when it first starts. |
+| Ethernet cable | 1 |  |
+| 8-LED addressable stick | 1 | WS2812 or SK6812. The four-colour (RGBW) kind works too; you choose it during setup. |
+| Toggle switch (SPST) | 1 | Two wires, 6 mm neck. The maintenance switch. |
+| DS3231 clock module (optional) | 1 | Fit it when your router has no time server. On the ZS-042 board remove R4 (201), which charges the cell; a CR2032 must not be charged. |
 
-What you also need, but is not part of the box:
+No relay, safety key or button; we tried them and took them out. Time comes one of two ways: your router's time server (NTP) or a battery clock module. If you cannot set up the router, fit the module.
 
-- a microSD card (16 GB or more; an industrial/high-endurance card is a good idea),
-- a USB-C power supply, 5 V / 3 A (the board feeds the drive through its USB-A port),
-- an Ethernet cable (the box is wired only; Wi-Fi and Bluetooth are switched off),
-- for setup and for the commands at the box: a 3.3 V USB-serial adapter on the board's debug
-  UART (GND, RX, TX; 115200 baud). If your board has no pins there, use a clip or spring-contact
-  probe instead of soldering. With an embedded `setup.conf` the console is needed only for a new
-  disk (its recovery passphrase is shown once) and for the operation code.
+## Wiring
 
-```
-USB-C 5 V / 3 A ──► Orange Pi Zero 3 ──USB-A──► USB-SATA cable ──► 2.5" SSD
-                        │
-                        ├── Ethernet ──► your network (wired)
-                        └── debug UART ──► USB-serial adapter (only while you work at the box)
-```
+Pin numbers come from the official Orange Pi Zero 3 v1.2 pinout. The disk wires are verified on the bench; the light and switch tests are next. Pin 1 is the square solder pad on both headers.
 
-## Indicators
+| Wire | Goes to | Note |
+| --- | --- | --- |
+| Disk · red 1 | 13-pin header, pin 1 (5 V) | Power for the bridge board |
+| Disk · black 1 | 13-pin header, pin 2 (GND) |  |
+| Disk · white (D−) | 13-pin header, pin 3 (USB2 D−) | Keep the data wires short and close together |
+| Disk · green (D+) | 13-pin header, pin 4 (USB2 D+) |  |
+| Disk · red 2 | 26-pin header, pin 4 (5 V) | Extra supply, so the disk current is not carried by a single pin |
+| Disk · black 2 | 26-pin header, pin 9 (GND) |  |
+| LED · 5 V | 26-pin header, pin 2 (5 V) |  |
+| LED · GND | 26-pin header, pin 6 (GND) |  |
+| LED · DIN | 26-pin header, pin 19 (MOSI) | The stick's input end; DOUT stays free |
+| Switch · lead 1 | 26-pin header, pin 12 (PC11) |  |
+| Switch · lead 2 | 26-pin header, pin 14 (GND) | Contact closed means maintenance on |
+| Clock · VCC | 26-pin header, pin 1 (3.3 V) | Not 5 V; the module pulls I²C up to this voltage |
+| Clock · SDA | 26-pin header, pin 3 (I²C3 SDA, PH5) |  |
+| Clock · SCL | 26-pin header, pin 5 (I²C3 SCL, PH4) |  |
+| Clock · GND | 26-pin header, pin 25 (GND) | Pin 9 carries the disk's extra ground; 20 works too |
 
-There is no screen and no button. If the board has its own LED (`/sys/class/leds`, e.g.
-`green:status`) the box uses it (`BOARD_LED=auto`; `none` turns it off):
+1. **Take out the bridge board.** Open the housing of the USB-SATA cable, take out the board and desolder the USB cable. Four solder pads for USB remain on the board.
+2. **Wire the disk.** Solder the four wires to the first four pins of the 13-pin header and the extra supply pair to the 26-pin header. The disk runs at USB 2.0 speed; enough for a nightly backup.
+3. **Wire the light.** Solder the stick's 5 V, GND and DIN. Data travels on one wire. Whether a level shifter is needed will show in the light test; we will write the result here.
+4. **Wire the switch.** Solder the two leads of the switch to pin 12 and pin 14. No external resistor is planned; the board's internal pull-up will be used.
+5. **Wire the clock module (optional).** VCC to pin 1, SDA to pin 3, SCL to pin 5, GND to pin 25. 32K and SQW stay free. The box finds the module at address 0x68 itself; it takes its first time from the phone while pairing and keeps it without a network afterwards (about a minute of drift a year).
+6. **Measure before powering.** Check with a multimeter that there is no short between 5 V and GND. The undersides of the bare boards and the soldered ends must not touch each other.
+7. **Power from the adapter.** Plug the board into a 5 V 3 A adapter, not into a computer.
 
-| LED | Meaning |
+An interactive 3D pinout of the board: <https://open.noq.works/projects/purser/>.
+
+## Lights
+
+| Colour | Meaning |
 | --- | --- |
-| steady on | last sound generation newer than 30 h, no warning, no suspect |
-| slow blink | warning: delay, no generation, partial night, untrusted clock |
-| fast blink | suspect generation, rejected generation, disk or verification error |
-| heartbeat | not set up yet, or no sound generation yet |
+| White | Ready, disk closed |
+| White, a dot at each end | Not paired, or disk not prepared |
+| Blue, filling bar | Pulling the backup |
+| Cyan | Checking what was pulled |
+| Green | Tonight is done |
+| Yellow | Warning: the backup was taken but needs a look |
+| Orange | Fault: the backup could not be taken |
+| Red | Suspicion. Red never lights for anything else |
+| Purple, alternating | Maintenance access is on |
+| Red and white alternating | Operation code locked |
+| Dark | No power |
 
-The real state is in `status` on the serial console and in the notifications.
+The page on `https://<id>.local` (maintenance switch on) shows the same state in words.
 
 ## What the box does to the disk
 

@@ -1,0 +1,287 @@
+#!/usr/bin/python3 -I
+"""NOQ Purser: the page on the phone. Runs only while the maintenance switch is on
+(purser-maint starts and stops it), over HTTPS with a certificate the box made for itself.
+
+It reads the box's own state files and the hardware; it never reads backup data. Every action
+asks for the 12-digit operation code, which the core checks (shared attempt counter and lock).
+Distribution Python only: http.server + ssl, no framework, no external resources.
+"""
+import glob, http.server, json, os, re, shlex, socket, ssl, subprocess, sys, time
+
+LIB = os.environ.get("PURSER_LIB", "/usr/local/lib/purser")
+CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
+STATE = os.environ.get("STATE", "/var/lib/purser")
+RUN_DIR = os.environ.get("RUN_DIR", "/run/purser")
+UI_DIR = os.environ.get("PURSER_UI_DIR", "/etc/purser/ui")
+PAGE = os.environ.get("PURSER_UI_PAGE", os.path.join(LIB, "ui", "index.html"))
+PURSER = os.environ.get("PURSER_BIN", "/usr/local/sbin/purser")
+PORT = int(os.environ.get("PURSER_UI_PORT", "443"))
+ID_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$")
+LIGHTS = {"ready", "unpaired", "pulling", "checking", "done", "warning", "fault", "suspect", "locked", "maint", "test"}
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def kv(path):
+    """key=value files: state files and the sourced purser.conf (quotes, trailing # comments)."""
+    out = {}
+    for line in read(path).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        try:
+            parts = shlex.split(v, comments=True)
+        except ValueError:
+            parts = [v]
+        out[k.strip()] = parts[0] if parts else ""
+    return out
+
+
+def conf():
+    c = kv(CONF)
+    c.setdefault("LANG_UI", "en")
+    return c
+
+
+def run(*cmd, data=None, timeout=60):
+    try:
+        r = subprocess.run(list(cmd), input=data, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout + r.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 99, str(e)
+
+
+def box_id():
+    return read("/etc/purser/id", "") or "····"
+
+
+def version():
+    return read(os.path.join(LIB, "version"), "") or "1.0.0"
+
+
+_hw = {"t": 0.0, "v": {}}
+
+
+def hardware():
+    if time.time() - _hw["t"] < 20:
+        return _hw["v"]
+    d = {"model": None, "size": None, "temp": None, "health": None, "link": None}
+    rc, out = run("smartctl", "-d", "sat", "-i", "-H", "-A", "/dev/sda", timeout=15)
+    for line in out.splitlines():
+        if line.startswith("Device Model:"):
+            d["model"] = line.split(":", 1)[1].strip()
+        elif line.startswith("User Capacity:") and "[" in line:
+            d["size"] = line.split("[")[1].rstrip("]").strip()
+        elif "overall-health" in line:
+            d["health"] = "PASSED" in line
+        elif "Temperature_Celsius" in line:
+            try:
+                d["temp"] = int(line.split()[9])
+            except (IndexError, ValueError):
+                pass
+    rc, out = run("lsusb", "-t", timeout=5)
+    for line in out.splitlines():
+        if "Mass Storage" in line:
+            d["link"] = line.rsplit(",", 1)[-1].strip()
+    try:
+        board = round(int(read("/sys/class/thermal/thermal_zone0/temp", "0")) / 1000)
+    except ValueError:
+        board = None
+    _hw.update(t=time.time(), v={"disk": d, "board_temp": board})
+    return _hw["v"]
+
+
+def generations():
+    rows = []
+    for line in read(os.path.join(STATE, "aktarim.gecmis")).splitlines()[-30:]:
+        p = line.split()
+        if len(p) >= 3 and ID_RE.match(p[0]) and p[2].isdigit():
+            rows.append({"id": p[0], "bytes": int(p[2])})
+    return list(reversed(rows))
+
+
+def status():
+    c = conf()
+    last_run = kv(os.path.join(STATE, "last-run"))
+    lock = kv(os.path.join(STATE, "code.lock"))
+    usage = kv(os.path.join(STATE, "disk.usage"))
+    until = int(lock.get("until", "0") or 0)
+    light = (read(os.path.join(RUN_DIR, "light"), "unpaired").split() or ["unpaired"])
+    try:
+        up = int(float(read("/proc/uptime", "0").split()[0]))
+    except ValueError:
+        up = 0
+    s = {
+        "id": box_id(), "version": version(), "lang": c.get("LANG_UI", "en"),
+        "paired": bool(c.get("SERVER")), "maint": os.path.exists(os.path.join(RUN_DIR, "maint")),
+        "light": light[0], "light_arg": light[1] if len(light) > 1 else "",
+        "last_sound": read(os.path.join(STATE, "son-saglam")) or None,
+        "last_run": {k: last_run.get(k) for k in ("result", "id", "at")} if last_run else None,
+        "suspect": read(os.path.join(STATE, "supheli-var")) or None,
+        "code_set": bool(kv(os.path.join(STATE, "code.hash")).get("hash")),
+        "code_locked_s": max(0, until - int(time.time())),
+        "usage": {"used": int(usage["used"]), "total": int(usage["total"])} if usage.get("total", "").isdigit() and usage.get("used", "").isdigit() else None,
+        "generations": generations(), "uptime_s": up,
+    }
+    s.update(hardware())
+    s["clock"] = clock_info()
+    return s
+
+
+_clk = {"t": 0, "v": None}
+
+
+def clock_info():
+    if time.time() - _clk["t"] < 20:
+        return _clk["v"]
+    rc, out = run(PURSER, "clock-source", timeout=15)
+    src = out.strip().splitlines()[-1] if rc == 0 and out.strip() else "none"
+    rtc = False
+    for n in glob.glob("/sys/class/rtc/rtc*/name"):
+        if "ds1307" in read(n) or "ds3231" in read(n):
+            rtc = True
+    _clk.update(t=time.time(), v={"source": src if src in ("ntp", "rtc", "none") else "none", "rtc": rtc})
+    return _clk["v"]
+
+
+def check_code(code):
+    """0 ok, 1 wrong, 2 typo, 3 locked, 4 no code set (the core decides and counts)."""
+    rc, _ = run(PURSER, "check-code", data=re.sub(r"[^0-9]", "", code or "")[:12] + "\n", timeout=30)
+    return rc
+
+
+ACTIONS = {
+    "run": lambda: run("systemctl", "start", "--no-block", "purser.service"),
+    "selftest": lambda: run(PURSER, "selftest-nocode", timeout=180),
+    "shutdown": lambda: (run(PURSER, "disk-off", timeout=60), run("systemctl", "--no-block", "poweroff"))[1],
+}
+
+
+class Page(http.server.BaseHTTPRequestHandler):
+    server_version = "purser"
+    sys_version = ""
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def send(self, code, body, kind="application/json; charset=utf-8"):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Strict-Transport-Security", "max-age=0")
+        self.send_header("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                         "script-src 'self' 'unsafe-inline'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/api/status":
+            return self.send(200, status())
+        if self.path == "/jsqr.js":                         # QR decoder (Apache-2.0, see jsqr.LICENSE); loaded only for scanning
+            js = os.path.join(os.path.dirname(PAGE), "jsqr.min.js")
+            try:
+                return self.send(200, open(js, "rb").read(), "text/javascript; charset=utf-8")
+            except OSError:
+                return self.send(404, {"error": "not_found"})
+        if self.path in ("/", "/index.html") or self.path.startswith("/?"):
+            lang = conf().get("LANG_UI", "en")
+            lang = lang if lang in ("tr", "en") else "en"
+            page = read(PAGE).replace('<html lang="tr">', '<html lang="%s" data-dil="%s">' % (lang, lang), 1)
+            return self.send(200, page.encode(), "text/html; charset=utf-8")
+        self.send(404, {"error": "not_found"})
+
+    def body(self):
+        # same-origin JSON only: a cross-site form cannot set this header or content type
+        if self.headers.get("X-Purser") != "1" or not (self.headers.get("Content-Type", "").startswith("application/json")):
+            return None
+        n = int(self.headers.get("Content-Length", "0") or 0)
+        if n <= 0 or n > 8192:
+            return None
+        try:
+            return json.loads(self.rfile.read(n))
+        except ValueError:
+            return None
+
+    def do_POST(self):
+        data = self.body()
+        if not isinstance(data, dict):
+            return self.send(400, {"error": "bad_request"})
+        if self.path == "/api/light":                       # preview a state on the real stick for 10 s
+            st = str(data.get("state", ""))
+            if st not in LIGHTS:
+                return self.send(400, {"error": "bad_state"})
+            os.makedirs(RUN_DIR, exist_ok=True)
+            with open(os.path.join(RUN_DIR, "light-preview"), "w") as f:
+                f.write("%s %d\n" % (st, int(time.time()) + 10))
+            return self.send(200, {"ok": True})
+        if self.path == "/api/pair":
+            token = str(data.get("token", "")).strip()
+            if not re.fullmatch(r"purser-pair:[A-Za-z0-9_-]{40,4000}", token):
+                return self.send(400, {"error": "bad_token"})
+            rc, out = run(PURSER, "pair", token, timeout=90)
+            ms = data.get("now")
+            if rc == 0 and isinstance(ms, (int, float)) and ms > 0:     # the phone's clock, once, if a battery clock waits for it
+                run(PURSER, "rtc-set", str(int(ms) // 1000), "--if-unset", timeout=30)
+            return self.send(200 if rc == 0 else 409, {"ok": rc == 0, "code": rc, "detail": out[-300:]})
+        if self.path == "/api/action":
+            name = str(data.get("action", ""))
+            if name not in ACTIONS and name != "settime":
+                return self.send(400, {"error": "bad_action"})
+            rc = check_code(str(data.get("code", "")))
+            if rc != 0:
+                return self.send(403, {"ok": False, "code": {1: "wrong", 2: "typo", 3: "locked", 4: "no_code"}.get(rc, "error"),
+                                       "locked_s": status()["code_locked_s"]})
+            if name == "settime":
+                ms = data.get("now")
+                if not isinstance(ms, (int, float)) or ms <= 0:
+                    return self.send(400, {"error": "bad_time"})
+                arc, out = run(PURSER, "rtc-set", str(int(ms) // 1000), timeout=30)
+                return self.send(200 if arc == 0 else 409, {"ok": arc == 0, "detail": out[-300:]})
+            arc, out = ACTIONS[name]()
+            return self.send(200 if arc == 0 else 500, {"ok": arc == 0, "detail": out[-300:]})
+        self.send(404, {"error": "not_found"})
+
+
+def certificate():
+    cert, key = os.path.join(UI_DIR, "cert.pem"), os.path.join(UI_DIR, "key.pem")
+    if not (os.path.exists(cert) and os.path.exists(key)):
+        os.makedirs(UI_DIR, mode=0o700, exist_ok=True)
+        name = "%s.local" % box_id().lower()
+        run("openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-days", "3650",
+            "-subj", "/CN=%s" % name, "-addext", "subjectAltName=DNS:%s" % name, "-keyout", key, "-out", cert, timeout=60)
+        os.chmod(key, 0o600)
+    return cert, key
+
+
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    address_family = socket.AF_INET
+
+
+def main():
+    cert, key = certificate()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(cert, key)
+    srv = Server(("0.0.0.0", PORT), Page)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

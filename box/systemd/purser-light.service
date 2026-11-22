@@ -1,0 +1,12 @@
+[Unit]
+Description=NOQ Purser light stick (eight LEDs, one colour one meaning)
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/local/sbin/purser-light
+Restart=always
+RestartSec=2
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

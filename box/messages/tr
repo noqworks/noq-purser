@@ -172,3 +172,16 @@ E_NOT_PURSER_DISK|Disk açılıyor ama NOQ Purser düzeni yok.
 I_ADOPTED|Disk sahiplenildi: %s günlük ve %s uzun saklama nesli, son yayımlanan %s.
 E_SERVER_IP|SERVER bir IPv4 adresi olmalı.
 W_DONE|Kurulum bitti. Eksik kalan: %s
+E_ROOT|root olarak çalıştır.
+E_PAIR_TOKEN|Bu bir eşleştirme belirteci değil. Sunucuda "sudo purser pair" çalıştır, gösterdiği satırı ya da QR kodunu kullan.
+E_PAIR_FAILED|Sunucu eşleştirmeyi kabul etmedi: %s
+I_PAIRED|%s sunucusuyla eşleşildi. Kutu ilk yedeği bu gece çeker.
+N_PAIRED|%s kutusu bu sunucuyla eşleşti.
+N_MAINT_ON|Bakım anahtarı açıldı: kutunun sayfası ve SSH yerel ağda açık.
+N_MAINT_OFF|Bakım anahtarı kapatıldı: kutu yeniden kapalı.
+N_MAINT_STILL_ON|Bakım anahtarı %s saattir açık. İşin bitince kapat.
+N_DISK_PREPARED|Kutu diskini hazırladı (ilk açılış). Eşleşmeyi bekliyor.
+N_DISK_PREPARE_FAILED|Kutu diskini hazırlayamadı: %s. Takılı tek bir disk olduğundan emin ol.
+N_CLOCK_SET|Pil saati telefondan ayarlandı: %s.
+ST_RTC|pil saati ayarlı ve çalışıyor
+ST_RTC_NONE|BİLGİ pil saati yok (yalnız ağ saati)

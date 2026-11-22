@@ -254,6 +254,20 @@ watch() {
   fi
 }
 
+# Alarms from the box arrive as notes (purser-gate "note <event>"): raised here with ALERT_CMD,
+# each once. Run by purser-source-notes.path as soon as the file changes, and by watch hourly.
+notes() {
+  local f=$ACK/.notes seen=$CACHE/.notes-seen n at box ev
+  [ -s "$f" ] || return 0
+  n=$(cat "$seen" 2>/dev/null || echo 0); [[ $n =~ ^[0-9]+$ ]] || n=0
+  [ "$(wc -l < "$f")" -ge "$n" ] || n=0
+  tail -n +"$(( n + 1 ))" "$f" | while read -r at box ev; do
+    [[ ${ev:-} =~ ^[a-z_]{1,32}$ ]] || continue
+    alert "box_$ev" "box ${box:-?}: $ev"
+  done
+  wc -l < "$f" > "$seen"
+}
+
 check() {
   local s ok=0
   id "$GATE_USER" >/dev/null 2>&1 || { echo "gate user $GATE_USER missing"; ok=1; }
@@ -268,7 +282,8 @@ check() {
 
 case ${1:-run} in
   run) run ;;
-  watch) watch ;;
+  watch) notes; watch ;;
+  notes) notes ;;
   check) check ;;
-  *) echo "usage: purser-source [run|watch|check]" >&2; exit 2 ;;
+  *) echo "usage: purser-source [run|watch|notes|check]" >&2; exit 2 ;;
 esac

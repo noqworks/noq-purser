@@ -2,115 +2,78 @@
 
 [Türkçe](install.tr.md)
 
-Three steps: the server side, the box image, the first boot. Addresses below are examples
-(`192.0.2.10` server, `192.0.2.15` box).
+Preview 1.0.0. Downloads: <https://open.noq.works/projects/purser/#download> (also on the GitHub
+release). Every file is listed with its SHA-256 in `SHA256SUMS`.
 
-## 1. Server side
+## Overview
 
-On the protected server, as root (Debian 12/13, Ubuntu 24.04/26.04; tested on Debian 13,
-Ubuntu 24.04 and 26.04):
+1. **On the server: purser install.** Creates a separate user and a narrow gate only the box uses. Looks at pgBackRest, Borg and restic settings and suggests the repositories it finds. Warns plainly about an unencrypted repository.
+2. **On your computer: purser-setup.** purser-setup <image>.img.xz /dev/diskN. It checks the image's checksum and that the card is a removable disk, then asks for the box language, time zone, network (DHCP by default) and time server. It asks whether the disk is to be erased; if so you confirm by typing the new box id. You type the device name once more before the card is written.
+3. **Write it on paper.** Once the card is written two things are shown once: the 12-digit operation code and, if the disk is erased, the recovery passphrase. Setup does not go on until you have written them down and typed "written". No copy stays on the computer or the server; do not photograph them.
+4. **Insert the card, power on.** Card, disk, Ethernet, power last. The first boot is unattended: it takes the settings from the card, erases the setup partition and prepares the disk (cyan breathing). When it is done a dot lights at each end of the stick: waiting to be paired.
+5. **On the server: purser pair.** The terminal shows a QR code and a one-line token, valid for ten minutes and once.
+6. **Switch maintenance on, scan the QR code.** The light blinks purple. Open https://<id>.local on your phone and accept the browser's warning for the box's self-signed certificate once. Tap Pair and scan the code. With a clock module the phone's time is written to it once at this point.
+7. **Switch it off.** The page, SSH and the box's presence on the network close. The box pulls its first backup that night; a green light in the morning means it worked.
 
-```sh
-git clone <this repository> noq-purser && cd noq-purser
-source/install.sh --listen 192.0.2.10 --port 2222 --base /srv/purser --timer 04:30
+## 1. Server
+
+Debian 12/13 or Ubuntu 24.04+ with systemd.
+
+```
+tar xzf noq-purser-server-1.0.0.tar.gz && cd noq-purser-server-1.0.0
+sudo ./install.sh --listen 192.168.1.10        # the server's address on the box's network
+sudo nano /etc/purser/source.conf               # SOURCES=("pgbackrest:/var/lib/pgbackrest" "borg:/srv/borg" ...)
+sudo purser status
 ```
 
-It installs what is missing (`rsync`, `openssh-server`, `python3` for `rrsync`), creates the gate
-user (no password, no login shell use), puts `purser-source`, `purser-gate` and `purser-admit`
-into `/usr/local/sbin`, writes `/etc/purser/source.conf` (only if there is none), the gate's own
-host key, and the units `purser-source.timer` (nightly), `purser-source-watch.timer` (hourly) and
-`purser-sshd.service` (a separate sshd for the box only; the main sshd is not touched). It can be
-run again at any time; `--uninstall` removes programs and units, keeps the data under `--base`
-and moves `/etc/purser` aside.
+`install.sh` creates the gate user, a separate sshd for the gate (one port, default 2222, only
+the admitted boxes' addresses), the nightly `purser-source` job (`--timer 04:30`) and the alarm
+path. It is re-runnable. Alarms from the box arrive as `note <event>` and are raised with
+`ALERT_CMD` in `source.conf` (default: the system log). Options: `--port`, `--base`, `--user`,
+`--timer`, `--prefix`; `--uninstall` removes programs and units and keeps the data.
 
-Then edit `/etc/purser/source.conf`. The examples in `source/examples/` (pgBackRest, borg, restic,
-plain directory) show sources, wait units, freshness and verification commands. Check it and
-enable the timer:
+## 2. The card (on your computer)
 
-```sh
-purser-source check
-systemctl enable --now purser-source.timer
+macOS or Linux. In Terminal:
+
+```
+bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)
 ```
 
-Names inside the backups must use `A-Z a-z 0-9 . _ / + -`; anything else belongs inside a borg or
-restic repository. Encrypt the sources with their own tools (borg/restic repokey, pgBackRest
-`repo-cipher-type`): the box keeps its disk key on the box.
+or unpack `noq-purser-setup-1.0.0.tar.gz` and run `bash purser-setup` (on a Mac you can double-click
+`purser-setup.command`; the first time right-click > Open, it is a script, not a signed app).
 
-The box is admitted later, when it shows its key (step 3):
-
-```sh
-purser-admit 192.0.2.15 'ssh-ed25519 AAAA… purser@noq-purser'
-```
-
-This writes the key with `from="192.0.2.15",restrict,command="…/purser-gate"`, renders the gate's
-sshd configuration, limits the gate unit to the box address and adds a ufw or firewalld rule (with
-plain nftables it prints the rule to add). It prints the gate's host key fingerprint; the box
-asks you to compare it. `purser-admit --revoke` closes the gate.
-
-## 2. The box image
-
-On any Linux machine with Docker (nothing is installed on the host; arm64 programs run under
-proot + qemu inside the build container, nothing is registered with the host kernel):
-
-```sh
-image/build-image.sh --cache ./build-cache --out ./out [--setup-conf my-setup.conf]
-```
-
-- The base is a pinned Armbian release for the Orange Pi Zero 3 (Debian 12); its sha256 is in
-  the script and is checked before the file is used.
-- All packages the box needs are installed into the image at build time. The running box never
-  fetches code or packages: its firewall has no rule for it and the apt timers are masked.
-- The image comes with: SSH server masked, root password locked (`*`), no login on the serial
-  console (the restricted `purser-console` runs there instead), Wi-Fi and Bluetooth off, chrony
-  instead of timesyncd, empty machine id, no SSH host keys.
-- Result: `out/noq-purser-<version>-orangepizero3-<date>.img.xz` and its `.sha256`.
-- The first build takes long (the package stage); later builds reuse it (`--rebuild-base` redoes
-  it).
-
-**Optional unattended first boot.** Copy `image/setup.conf.example`, fill it in and pass it with
-`--setup-conf`. The box reads it once and shreds it. It can configure the gate (accepting its host
-key only when it matches `SERVER_HOSTKEY_FP`), sources, window, notification channel, language,
-fixed address (`NET_ADDRESS`, `NET_GATEWAY`; empty = DHCP), DNS, NTP and adopt a moved disk. A
-**new** disk is always prepared at the serial console, because its recovery passphrase is shown
-exactly once.
-
-**Write the card** (Linux or macOS):
-
-```sh
-image/flash.sh out/noq-purser-….img.xz /dev/sdX        # Linux; macOS: /dev/diskN (diskutil list)
-```
-
-It checks the image against its `.sha256`, refuses the disk the running system lives on, mounted
-system disks, non-removable disks and disks larger than 256 GB (`--force-size`), and asks you to
-type the device name back before it writes.
+The tool downloads the image from open.noq.works into your cache and checks its SHA-256, lists the
+removable disks (the card) and asks: language, time zone, network (DHCP, or an address), time
+server (`gateway` = the router), and whether the USB disk is to be erased and prepared (you type
+the new box id to confirm). `flash.sh` then refuses anything that is not a whole removable disk of
+at most 256 GB, and you type the device name once more. After writing it shows the operation code
+and, when the disk is prepared, the recovery passphrase, once; write them on paper and type the
+confirmation word. The settings and these one-time secrets go to the card's small setup partition
+(`PURSERSET`); the first boot takes them over and overwrites the partition. Nothing is kept on the
+computer. If `~/.ssh/id_ed25519.pub` exists it is put on the card for maintenance SSH
+(`--no-ssh-key` to skip). With an image you already have: `purser-setup <image.img.xz> <device>`.
 
 ## 3. First boot
 
-Connect the cable and the disk to the board, Ethernet, the USB-serial adapter on the debug UART
-(115200 baud), insert the card, power on. The first-boot service creates the users and keys,
-applies `setup.conf` if there is one, applies the firewall, chrony and DNS settings, runs the
-self-test and, if everything the nightly job needs is there (gate host key, notification channel,
-disk), enables the timers. Otherwise it waits for `setup` on the serial console and the LED shows
-a heartbeat.
+Card, USB disk, Ethernet, then power. The first boot is unattended: settings from the card, the
+disk erased and prepared as LUKS2 + btrfs only with the marker you confirmed, a self-test. The
+stick breathes cyan while the disk is prepared; a white stick with a dot at each end means it waits
+to be paired. Without a time source (router NTP or the battery clock) the box takes no backup;
+see [hardware.md](hardware.md) for the clock module.
 
-On the serial console (`purser>` prompt), `setup` asks for: language, gate address and port,
-sources (`KINDS`), first question time, end of the polling interval. Then:
+## 4. Pairing
 
-1. It prints the `purser-admit` line to run on the server, with the box's address and key.
-2. It shows the gate's host key fingerprint: compare it with what `purser-admit` printed.
-3. Notification channel: an ntfy server (a random topic is generated); subscribe to it in the
-   ntfy app; a test message is sent.
-4. Disk: with no disk configured it offers to prepare a **new** disk: exactly one USB disk must be
-   attached; type `ERASE`. It creates LUKS2 (AES-XTS or Adiantum after a benchmark) with a random
-   key file and a **recovery passphrase that is shown once** (write it on paper, type its last
-   four characters back), takes a LUKS header backup (`/etc/purser/sirlar/luks-baslik.img`; copy
-   it to a USB stick for the paper pack), creates btrfs and the layout.
-5. Operation code: shown once, write it on paper (not on the box), type it back.
-6. Self-test.
+```
+sudo purser pair                 # QR code and a one-line token, valid 10 minutes, once
+```
 
-A new disk then needs its first fill, without the window ceiling: `first-fill` (asks for the
-code; runs in the background; follow it with `status`). After the first fill the nightly timer
-is enabled. Check with `status` and `selftest`, and send a test with `notify-test`.
+Switch maintenance on (the stick alternates purple). On your phone open `https://<id>.local`
+(the id is on the card label, e.g. `k7rt.local`), accept the warning for the box's self-signed
+certificate once, tap Pair and scan the code (or paste the line). The box checks the server's
+host key, the server admits the box's key for its address only, and with a battery clock the
+phone's time is written to it. Switch maintenance off: the page, SSH and mDNS close. The box pulls
+its first generation that night.
 
 ## Moving to a new SD card (update)
 

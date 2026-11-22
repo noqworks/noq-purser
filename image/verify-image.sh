@@ -19,8 +19,21 @@ for u in multi-user.target.wants/purser-boot.service multi-user.target.wants/pur
   check "enabled: $u" test -L "$M/etc/systemd/system/$u"
 done
 check "serial console runs purser-console on $tty" grep -q 'purser-console' "$M/etc/systemd/system/serial-getty@$tty.service.d/purser.conf"
-for u in ssh.service ssh.socket getty@tty1.service apt-daily.timer apt-daily-upgrade.timer wpa_supplicant.service; do
+for u in getty@tty1.service apt-daily.timer apt-daily-upgrade.timer wpa_supplicant.service armbian-resize-filesystem.service; do
   check "masked: $u" link_to "/etc/systemd/system/$u" /dev/null
+done
+for u in ssh.service avahi-daemon.service; do
+  check "not enabled (only with the switch): $u" test ! -e "$M/etc/systemd/system/multi-user.target.wants/$u"
+done
+for u in purser-light.service purser-maint.service; do
+  check "enabled: $u" test -L "$M/etc/systemd/system/multi-user.target.wants/$u"
+done
+check "light stick overlay" grep -q '^overlays=.*spidev1_0' "$M/boot/armbianEnv.txt"
+check "battery clock bus (I2C3) overlay" grep -q '^overlays=.*i2c3-ph' "$M/boot/armbianEnv.txt"
+check "battery clock driver" bash -c 'ls "$1"/lib/modules/*/kernel/drivers/rtc/rtc-ds1307.ko* >/dev/null 2>&1' _ "$M"
+check "hwclock present" test -x "$M/usr/sbin/hwclock" -o -x "$M/sbin/hwclock"
+for f in usr/local/sbin/purser-light usr/local/sbin/purser-maint usr/local/sbin/purser-ui usr/local/lib/purser/ui/index.html usr/local/lib/purser/pair.sh; do
+  check "present: /$f" test -s "$M/$f"
 done
 check "nightly timer not enabled before setup" test ! -e "$M/etc/systemd/system/timers.target.wants/purser.timer"
 check "machine-id empty" test ! -s "$M/etc/machine-id"

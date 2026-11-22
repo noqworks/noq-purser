@@ -172,3 +172,16 @@ E_NOT_PURSER_DISK|The disk opens but has no NOQ Purser layout.
 I_ADOPTED|Disk adopted: %s daily and %s long-retention generations, last published %s.
 E_SERVER_IP|SERVER must be an IPv4 address.
 W_DONE|Setup finished. Still missing: %s
+E_ROOT|Run as root.
+E_PAIR_TOKEN|This is not a pairing token. Run "sudo purser pair" on the server and use the line or QR code it shows.
+E_PAIR_FAILED|The server did not accept the pairing: %s
+I_PAIRED|Paired with the server %s. The box pulls its first backup tonight.
+N_PAIRED|Box %s is paired with this server.
+N_MAINT_ON|Maintenance switch turned on: the box page and SSH are open on the local network.
+N_MAINT_OFF|Maintenance switch turned off: the box is closed again.
+N_MAINT_STILL_ON|The maintenance switch has been on for %s hours. Turn it off when you are done.
+N_DISK_PREPARED|The box prepared its disk (first boot). It is waiting to be paired.
+N_DISK_PREPARE_FAILED|The box could not prepare its disk: %s. Check that exactly one disk is attached.
+N_CLOCK_SET|The battery clock was set from the phone: %s.
+ST_RTC|battery clock set and running
+ST_RTC_NONE|INFO  no battery clock (network time only)

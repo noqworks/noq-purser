@@ -1,0 +1,31 @@
+#!/bin/bash
+# NOQ Purser, server side: one command.
+#   sudo purser install --listen <ip> [--port 2222] ...   set up the gate and the nightly job (re-runnable)
+#   sudo purser pair                                      pair a box (QR code / line for its page)
+#   sudo purser unpair <id>                               the box may no longer connect
+#   purser status                                         sources, generations, boxes, last acknowledgement
+#   sudo purser uninstall                                 remove programs and units (data and settings kept aside)
+set -euo pipefail
+PREFIX=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+SHARE=$PREFIX/share/noq-purser
+VERSION=$(cat "$SHARE/version" 2>/dev/null || echo dev)
+case ${1:-help} in
+  install) shift; exec bash "$SHARE/install.sh" "$@" ;;
+  uninstall) exec bash "$SHARE/install.sh" --uninstall ;;
+  pair) shift; exec "$PREFIX/sbin/purser-pair" "$@" ;;
+  unpair) exec "$PREFIX/sbin/purser-admit" remove "${2:?box id, e.g. A4X7}" ;;
+  status)
+    # shellcheck source=/dev/null
+    . /etc/purser/source.conf
+    echo "NOQ Purser $VERSION (server)"
+    echo "sources:"; for s in "${SOURCES[@]}"; do p=${s#*:}; p=${p%%:*}; printf '  %-12s %-40s %s\n' "${s%%:*}" "$p" "$(du -sh "$p" 2>/dev/null | cut -f1)"; done
+    echo "newest generation: $(cat "$BASE/generation/LATEST" 2>/dev/null || echo none)"
+    last=$(find "$BASE/ack" -maxdepth 1 -type f -name '20*' -printf '%f\n' 2>/dev/null | sort | tail -1)
+    echo "last acknowledgement: ${last:-none}${last:+ ($(cut -d' ' -f1 "$BASE/ack/$last"))}"
+    echo "boxes:"; if [ -s /etc/purser/boxes ]; then while read -r id ip _; do echo "  NOQ-PURSER-$id  $ip"; done < /etc/purser/boxes; else echo "  none (sudo purser pair)"; fi
+    age=$(( ( $(date +%s) - $(stat -c %Y "$SHARE/version" 2>/dev/null || date +%s) ) / 86400 ))
+    [ "$age" -gt 182 ] && echo "this release is $age days old: look for a newer one (nothing is checked online)"
+    exit 0 ;;
+  version|--version) echo "NOQ Purser $VERSION" ;;
+  *) sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac

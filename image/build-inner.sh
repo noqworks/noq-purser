@@ -141,11 +141,20 @@ rm -f "$R"/etc/ssh/ssh_host_*                         # Armbian's first run make
 sed -i 's/^root:[^:]*:/root:*:/' "$R/etc/shadow"      # no root password; there is no login anyway
 rm -f "$R/root/.not_logged_in_yet" "$R/root/.bash_history"
 sed -i 's/^console=.*/console=serial/' "$R/boot/armbianEnv.txt"
+# the light stick: SPI1 MOSI (header pin 19) as /dev/spidev1.0
+if grep -q '^overlays=' "$R/boot/armbianEnv.txt"; then
+  grep -q '^overlays=.*spidev1_0' "$R/boot/armbianEnv.txt" || sed -i 's/^overlays=\(.*\)/overlays=\1 spidev1_0/' "$R/boot/armbianEnv.txt"
+else echo "overlays=spidev1_0 i2c3-ph" >> "$R/boot/armbianEnv.txt"; fi
+# I2C3 on header pins 3/5: the optional battery clock (DS3231)
+grep -q '^overlays=.*i2c3-ph' "$R/boot/armbianEnv.txt" || sed -i 's/^overlays=\(.*\)/overlays=\1 i2c3-ph/' "$R/boot/armbianEnv.txt"
+[ -e "$R/boot/dtb/allwinner/overlay/sun50i-h616-spidev1_0.dtbo" ] || { echo "spidev1_0 overlay missing" >&2; exit 1; }
+[ -e "$R/boot/dtb/allwinner/overlay/sun50i-h616-i2c3-ph.dtbo" ] || { echo "i2c3-ph overlay missing" >&2; exit 1; }
 echo noq-purser > "$R/etc/hostname"
 sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tnoq-purser/' "$R/etc/hosts"
-for u in getty@tty1.service ssh.service ssh.socket wpa_supplicant.service bluetooth.service aw859a-wifi.service \
+# ssh is not masked: purser-maint starts it while the maintenance switch is on (it is disabled)
+for u in getty@tty1.service wpa_supplicant.service bluetooth.service aw859a-wifi.service \
          aw859a-bluetooth.service apt-daily.timer apt-daily-upgrade.timer armbian-led-state.service \
-         systemd-timesyncd.service unattended-upgrades.service; do
+         systemd-timesyncd.service unattended-upgrades.service armbian-resize-filesystem.service; do
   in_root "$R" systemctl --root=/ mask "$u" >/dev/null 2>&1 || true
 done
 [ "$(readlink "$R/etc/resolv.conf")" = /run/systemd/resolve/stub-resolv.conf ] \
@@ -192,6 +201,21 @@ step "verifying the image"
 mount -o ro "$LOOP" "$MNT"
 bash /src/image/verify-image.sh "$MNT" "$base_uuid"
 loop_detach
+
+# the setup partition: 16 MiB FAT after the root file system ("purser setup" writes into it on the
+# user's computer; the first boot takes the files over and overwrites the partition). The root
+# file system is not grown at first boot (armbian-resize-filesystem is masked): it has room enough.
+step "setup partition (FAT, PURSERSET)"
+end=$(( $(stat -c %s "$IMG") / 512 ))
+start=$(( (end + 2047) / 2048 * 2048 ))
+truncate -s $(( (start + 32768) * 512 )) "$IMG"
+echo "start=$start, size=32768, type=c" | sfdisk -q --append "$IMG"
+SOURCE_DATE_EPOCH=$BUILD_DATE mkfs.vfat -n PURSERSET -i "$(printf %08x $(( BUILD_DATE & 0xffffffff )))" -C /tmp/purserset.img 16384 >/dev/null
+printf 'NOQ Purser: "purser setup" writes the settings for the first boot here.\r\n' > /tmp/README.TXT
+SOURCE_DATE_EPOCH=$BUILD_DATE mcopy -i /tmp/purserset.img /tmp/README.TXT ::README.TXT
+dd if=/tmp/purserset.img of="$IMG" bs=512 seek="$start" conv=notrunc status=none
+rm -f /tmp/purserset.img /tmp/README.TXT
+sfdisk -d "$IMG" | sed -n 's/^[^ ]*img\([0-9]\) : /part \1: /p'
 
 DATE=$(date -u -d "@$BUILD_DATE" +%Y%m%d)
 NAME=noq-purser-$VERSION-orangepizero3-$DATE.img

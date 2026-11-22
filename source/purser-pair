@@ -1,0 +1,95 @@
+#!/bin/bash
+# NOQ Purser, server: pair one box.
+#   purser pair [--from <cidr>] [--minutes 10] [--advertise <ip>:<port>]
+# --advertise: the address the box should dial when it differs from the gate's own (port forwarding).
+# Shows a token as a line and as a QR code. On the box: turn the maintenance switch on, open its
+# page, scan the code (or paste the line). The token carries this gate's address and host key and
+# a one-time key that the gate accepts for ten minutes, once, from the local subnet only, and that
+# can do one thing: hand over the box's id and public key. The box then appears in
+# /etc/purser/boxes and the gate admits it by its address and key only.
+set -euo pipefail
+umask 077
+GATE_CONF=/etc/purser/gate.conf
+SOURCE_CONF=/etc/purser/source.conf
+PAIR_STATE=/run/purser-pair
+MINUTES=10 FROM="" ADVERTISE=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --from) FROM=$2; shift 2 ;;
+    --minutes) MINUTES=$2; shift 2 ;;
+    --advertise) ADVERTISE=$2; shift 2 ;;
+    *) echo "usage: purser pair [--from <cidr>] [--minutes N] [--advertise <ip>:<port>]" >&2; exit 2 ;;
+  esac
+done
+[ "$(id -u)" = 0 ] || { echo "run as root (sudo purser pair)" >&2; exit 1; }
+[ -r "$GATE_CONF" ] || { echo "not installed: run \"sudo purser install\" first" >&2; exit 1; }
+# shellcheck source=/dev/null
+. "$GATE_CONF"
+# shellcheck source=/dev/null
+. "$SOURCE_CONF"
+: "${BASE:?}" "${GATE_USER:?}" "${PORT:?}" "${LISTEN_ADDR:?}" "${PREFIX:?}"
+[[ $MINUTES =~ ^[0-9]+$ ]] && [ "$MINUTES" -ge 1 ] && [ "$MINUTES" -le 60 ] || { echo "--minutes: 1..60" >&2; exit 2; }
+host=$LISTEN_ADDR port=$PORT
+if [ -n "$ADVERTISE" ]; then
+  [[ $ADVERTISE =~ ^([0-9]{1,3}(\.[0-9]{1,3}){3}):([0-9]{1,5})$ ]] || { echo "--advertise <ip>:<port>" >&2; exit 2; }
+  host=${BASH_REMATCH[1]} port=${BASH_REMATCH[3]}
+fi
+if [ -z "$FROM" ]; then
+  FROM=$(ip -4 -o addr show | awk -v a="$LISTEN_ADDR" '{ split($4, p, "/"); if (p[1] == a) print $4 }' | head -1)
+  [ -n "$FROM" ] && FROM=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_interface(sys.argv[1]).network)' "$FROM")
+fi
+[[ $FROM =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || { echo "cannot find the local subnet of $host; give --from 192.168.1.0/24" >&2; exit 1; }
+
+# shellcheck disable=SC2317  # called by the trap
+cleanup() {
+  rm -rf "$PAIR_STATE" "$BASE/pair"
+  "$PREFIX/sbin/purser-admit" render >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+rm -rf "$PAIR_STATE"; install -d -m 0700 "$PAIR_STATE"
+ssh-keygen -q -t ed25519 -N '' -C purser-pair -f "$PAIR_STATE/key"
+echo "$FROM" > "$PAIR_STATE/cidr"
+install -d -m 0770 -o root -g "$GATE_USER" "$BASE/pair"
+"$PREFIX/sbin/purser-admit" render >/dev/null
+
+hostkey=$(cut -d' ' -f1,2 /etc/purser/ssh/ssh_host_ed25519_key.pub)
+priv=$(sed '1d;$d' "$PAIR_STATE/key" | tr -d '\n')
+token="purser-pair:$(printf 'v1|%s|%s|%s|%s|%s' "$host" "$port" "$GATE_USER" "$hostkey" "$priv" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+
+echo
+echo "On the box: turn the maintenance switch on, open its page, Pair with server."
+echo "Scan this code with the phone, or paste the line below. Valid for $MINUTES minutes, once,"
+echo "from $FROM only."
+echo
+if command -v qrencode >/dev/null 2>&1; then qrencode -t ANSIUTF8 -m 2 "$token"
+else echo "(install the package \"qrencode\" to see a QR code here)"; fi
+echo
+echo "$token"
+echo
+echo "Waiting for the box ... (Ctrl-C cancels)"
+deadline=$(( $(date +%s) + MINUTES * 60 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if [ -s "$BASE/pair/request" ]; then
+    read -r id ip kt key < "$BASE/pair/request"; rm -f "$BASE/pair/request"
+    # the box must come from the subnet the token was offered to (the key line enforces it too)
+    if ! python3 -c 'import ipaddress,sys; sys.exit(0 if ipaddress.ip_address(sys.argv[1]) in ipaddress.ip_network(sys.argv[2]) else 1)' "$ip" "$FROM"; then
+      echo "refused: request from $ip, outside $FROM" >&2; echo "refused" > "$BASE/pair/result"; sleep 2; exit 1
+    fi
+    kinds=""
+    for s in "${SOURCES[@]}"; do
+      t=${s%%:*}; r=${s#*:}; p=${r%%:*}
+      if [ "$r" != "${r#*:}" ]; then n=${r#*:}; else n=$(basename "$p"); fi
+      kinds+="$t:$n "
+    done
+    printf 'ok %s\n' "${kinds% }" > "$BASE/pair/result"; chmod 0644 "$BASE/pair/result"
+    sleep 3   # the gate answers the box before the one-time key goes away
+    rm -rf "$PAIR_STATE"
+    "$PREFIX/sbin/purser-admit" add "$id" "$ip" "$kt $key" >/dev/null
+    echo "Paired: NOQ-PURSER-$id at $ip. The box pulls its first backup tonight."
+    exit 0
+  fi
+  sleep 1
+done
+echo "No box within $MINUTES minutes. Nothing was changed; run purser pair again." >&2
+exit 1

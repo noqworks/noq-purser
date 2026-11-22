@@ -1,0 +1,369 @@
+#!/bin/bash
+# NOQ Purser: prepare a box card on your computer (Linux and macOS), once.
+#
+#   purser-setup                       everything asked: the newest image is downloaded from
+#                                      open.noq.works and checked, the card is picked from a list
+#   purser-setup <image.img.xz> <device> [options]   with a local image and a named card
+#     device       the whole SD card: Linux /dev/sdb or /dev/mmcblk0, macOS /dev/disk4
+#   options
+#     --lang tr|en       language of this program and of the box (default: from $LANG)
+#     --keep-disk        never erase the USB disk (it is adopted with a key moved from an old card)
+#     --no-ssh-key       do not put your SSH key on the card (maintenance SSH stays impossible)
+#     --ssh-key FILE     public key for maintenance SSH (default ~/.ssh/id_ed25519.pub)
+#     --card DEV         the card, instead of picking it from the list
+#     --force-size       allow a card larger than 256 GB
+#
+# What it does, in this order:
+#   1. asks the box language, time zone, network (DHCP unless you give an address) and whether
+#      the USB disk is to be erased and prepared (you type the new box id to confirm that)
+#   2. writes the image with image/flash.sh (checksum, card checks, you type the device name)
+#   3. generates the operation code and, when the disk is prepared, the recovery passphrase,
+#      shows them ONCE; you write them on paper and type the confirmation word
+#   4. writes them with the settings onto the card's setup partition (PURSERSET), reads them
+#      back, ejects the card and prints the label text.
+# The first boot takes everything over, overwrites the setup partition and waits to be paired
+# ("purser pair" on the server, then the QR code on the box page with the switch on).
+# Nothing is sent anywhere; nothing is kept on this computer.
+set -uo pipefail
+export LC_ALL=C
+HERE=$(cd "$(dirname "$0")" && pwd)
+die() { echo "purser-setup: $*" >&2; exit 1; }
+
+IMG="" DEV="" UI="" KEEP_DISK=0 SSH_KEY="" NO_KEY=0 FORCE=() TO_FILE=0
+while [ $# -gt 0 ]; do
+  case $1 in
+    --lang) UI=$2; shift 2 ;;
+    --keep-disk) KEEP_DISK=1; shift ;;
+    --no-ssh-key) NO_KEY=1; shift ;;
+    --ssh-key) SSH_KEY=$2; shift 2 ;;
+    --card) DEV=$2; shift 2 ;;
+    --force-size) FORCE=(--force-size); shift ;;
+    --to-file) TO_FILE=1; FORCE=(--to-file); shift ;;   # test seam: the device is an image file
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -*) die "unknown option $1" ;;
+    *) if [ -z "$IMG" ]; then IMG=$1; elif [ -z "$DEV" ]; then DEV=$1; else die "too many arguments"; fi; shift ;;
+  esac
+done
+OS=$(uname -s)
+case $OS in Linux|Darwin) ;; *) die "unsupported system $OS (Linux or macOS)" ;; esac
+if [ -z "$UI" ]; then
+  printf 'Dil / Language (tr/en) [tr]: ' >&2; read -r UI || UI=""; UI=${UI:-tr}
+fi
+case $UI in tr*) UI='tr' ;; *) UI='en' ;; esac
+
+t() {   # t <english> <turkish>
+  if [ "$UI" = tr ]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+ask() {   # ask <prompt> <default> -> answer on stdout
+  local a
+  printf '%s' "$1" >&2; [ -n "$2" ] && printf ' [%s]' "$2" >&2; printf ': ' >&2
+  read -r a || a=""
+  printf '%s' "${a:-$2}"
+}
+yes_no() {   # yes_no <prompt> <default y|n>
+  local a d=$2
+  [ "$UI" = tr ] && { [ "$d" = y ] && d=e || d=h; }
+  a=$(ask "$1 ($(t 'y/n' 'e/h'))" "$d")
+  case $a in y|Y|yes|e|E|evet) return 0 ;; *) return 1 ;; esac
+}
+as_root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
+sha256_of() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -c1-64; else shasum -a 256 "$1" | cut -c1-64; fi; }
+
+# --- the release: a plain manifest next to the files (no JSON parser needed on a bare Mac) ---
+#   version 1.0.0
+#   image noq-purser-1.0.0-orangepizero3.img.xz <sha256>
+#   flash flash.sh <sha256>
+RELEASES=${PURSER_RELEASES:-https://open.noq.works/files/purser}
+if [ "$OS" = Darwin ]; then CACHE=$HOME/Library/Caches/noq-purser; else CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/noq-purser; fi
+fetch() {   # fetch <name> <sha256> -> path in the cache, checked
+  local name=$1 want=$2 f
+  [[ $name =~ ^[A-Za-z0-9._-]+$ ]] && [[ $want =~ ^[0-9a-f]{64}$ ]] || die "bad release manifest"
+  mkdir -p "$CACHE/$VERSION"; f=$CACHE/$VERSION/$name
+  if [ -s "$f" ] && [ "$(sha256_of "$f")" = "$want" ]; then echo "$f"; return 0; fi
+  t "downloading $name ..." "$name indiriliyor ..." >&2; echo >&2
+  curl -fL --proto '=https,file' --progress-bar -o "$f.part" "$RELEASES/$VERSION/$name" || die "download failed: $name"
+  [ "$(sha256_of "$f.part")" = "$want" ] || { rm -f "$f.part"; die "$name: checksum mismatch (damaged download or not the published file)"; }
+  mv -f "$f.part" "$f"; echo "$f"
+}
+latest_release() {
+  local m
+  m=$(curl -fsSL --proto '=https,file' "$RELEASES/latest.txt") || die "cannot reach $RELEASES/latest.txt"
+  VERSION=$(awk '$1 == "version" { print $2; exit }' <<< "$m")
+  [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$ ]] || die "bad release manifest"
+  IMG_NAME=$(awk '$1 == "image" { print $2; exit }' <<< "$m"); IMG_SUM=$(awk '$1 == "image" { print $3; exit }' <<< "$m")
+  FLASH_NAME=$(awk '$1 == "flash" { print $2; exit }' <<< "$m"); FLASH_SUM=$(awk '$1 == "flash" { print $3; exit }' <<< "$m")
+}
+
+# --- the card: removable disks only, picked from a list ---
+list_cards() {   # one line each: <device>|<size>|<name>
+  local d info
+  if [ "$OS" = Darwin ]; then
+    # the built-in SD slot of a MacBook counts as "internal": go by removable / SD / USB instead
+    for d in $(diskutil list physical 2>/dev/null | awk '/^\/dev\/disk[0-9]+/ { print $1 }'); do
+      info=$(diskutil info "$d" 2>/dev/null) || continue
+      grep -Eq 'Removable Media: *(Removable|Yes)|Protocol: *(USB|Secure Digital)|Device Location: *External' <<< "$info" || continue
+      grep -Eq 'Disk Size: *0 B' <<< "$info" && continue
+      printf '%s|%s|%s\n' "$d" "$(sed -n 's/^ *Disk Size: *\([^(]*\).*/\1/p' <<< "$info" | sed 's/ *$//')" \
+        "$(sed -n 's/^ *Device \/ Media Name: *//p' <<< "$info")"
+    done
+  else
+    lsblk -dpno NAME,SIZE,TRAN,RM,MODEL 2>/dev/null | awk '($3 == "usb" || $3 == "mmc" || $4 == "1") && $2 != "0B" {
+      n = $1; s = $2; $1 = $2 = $3 = $4 = ""; sub(/^ +/, ""); printf "%s|%s|%s\n", n, s, $0 }'
+  fi
+}
+pick_card() {
+  local cards n i a d s m
+  while :; do
+    cards=$(list_cards)
+    n=$(grep -c . <<< "$cards")
+    if [ "$n" -eq 0 ]; then
+      ask "$(t 'No SD card found. Insert the card and press Enter' 'SD kart bulunamadı. Kartı takıp Enter tuşuna basın')" "" >/dev/null; continue
+    fi
+    echo >&2; t 'Cards (removable disks):' 'Kartlar (çıkarılabilir diskler):' >&2; echo >&2
+    i=0; while IFS='|' read -r d s m; do i=$((i + 1)); printf '  %d) %s  %s  %s\n' "$i" "$d" "$s" "$m" >&2; done <<< "$cards"
+    a=$(ask "$(t 'Which one (number; Enter = look again)' 'Hangisi (numara; Enter = yeniden bak)')" "")
+    [[ $a =~ ^[0-9]+$ ]] && [ "$a" -ge 1 ] && [ "$a" -le "$n" ] || continue
+    sed -n "${a}p" <<< "$cards" | cut -d'|' -f1; return 0
+  done
+}
+ipv4_ok() {
+  local IFS=. a b c d
+  [[ $1 =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+  read -r a b c d <<< "$1"
+  [ "$a" -le 255 ] && [ "$b" -le 255 ] && [ "$c" -le 255 ] && [ "$d" -le 255 ]
+}
+
+# --- what to write, and where ---
+FLASH=$HERE/flash.sh
+if [ -z "$IMG" ]; then
+  latest_release
+  echo
+  t "NOQ Purser $VERSION (from $RELEASES)" "NOQ Purser $VERSION ($RELEASES)"; echo
+  IMG=$(fetch "$IMG_NAME" "$IMG_SUM") || exit 1
+  printf '%s  %s\n' "$IMG_SUM" "$IMG_NAME" > "$IMG.sha256"
+  [ -r "$FLASH" ] || FLASH=$(fetch "$FLASH_NAME" "$FLASH_SUM") || exit 1
+fi
+[ -r "$FLASH" ] || die "flash.sh not found next to this program"
+[ -n "$DEV" ] || DEV=$(pick_card)
+
+# --- random values (same rules as on the box) ---
+rand_bytes() { od -An -tu1 -N"$1" /dev/urandom; }
+new_box_id() {
+  local all=ABCDEFGHJKMNPQRSTUVWXYZ23456789 id b
+  while :; do
+    id=""
+    for b in $(rand_bytes 16); do
+      [ "$b" -lt 248 ] || continue
+      id=$id${all:$(( b % 31 )):1}; [ ${#id} -eq 4 ] && break
+    done
+    [ ${#id} -eq 4 ] && [[ $id =~ [A-Z] ]] && [[ $id =~ [0-9] ]] && break
+  done
+  printf '%s' "$id"
+}
+DAMM="0317598642 7092154863 4206871359 1750983426 6123045978 3674209581 5869720134 8945362017 9438617205 2581436790"
+damm_digit() {
+  local s=$1 i c interim=0 rows row
+  read -r -a rows <<< "$DAMM"
+  for (( i = 0; i < ${#s}; i++ )); do row=${rows[$interim]}; c=${s:$i:1}; interim=${row:$c:1}; done
+  printf '%s' "$interim"
+}
+new_code() {
+  local d="" b
+  while [ ${#d} -lt 11 ]; do
+    for b in $(rand_bytes 32); do
+      [ "$b" -lt 250 ] && d=$d$(( b % 10 ))
+      [ ${#d} -ge 11 ] && break
+    done
+  done
+  printf '%s%s' "$d" "$(damm_digit "$d")"
+}
+new_recovery() {
+  local r=""
+  while [ ${#r} -lt 32 ]; do r=$r$(head -c 4096 /dev/urandom | tr -dc 'ACDEFHJKLMNPRTUVWXY34679'); done
+  printf '%s' "${r:0:32}" | sed 's/.\{4\}/&-/g; s/-$//'
+}
+
+# --- 1. questions ---
+BOX_ID=$(new_box_id)
+[ $TO_FILE = 1 ] && [ -n "${PURSER_TEST_BOX_ID:-}" ] && BOX_ID=$PURSER_TEST_BOX_ID
+echo
+echo "NOQ Purser — $(t 'new box' 'yeni kutu'): NOQ-PURSER-$BOX_ID"
+echo
+LANG_UI=$(ask "$(t 'Box language (en/tr)' 'Kutunun dili (tr/en)')" "$UI")
+case $LANG_UI in tr|en) ;; *) die "language: en or tr" ;; esac
+
+tz=""
+if [ -L /etc/localtime ]; then tz=$(readlink /etc/localtime | sed -n 's|.*zoneinfo/||p'); fi
+[ -z "$tz" ] && [ -r /etc/timezone ] && tz=$(cat /etc/timezone)
+TZ_BOX=$(ask "$(t 'Time zone (display only)' 'Saat dilimi (yalnız gösterim)')" "${tz:-UTC}")
+[[ $TZ_BOX =~ ^[A-Za-z0-9_+/-]+$ ]] || die "time zone: $TZ_BOX"
+
+NET_ADDRESS="" NET_GATEWAY=""
+if ! yes_no "$(t 'Network by DHCP' 'Ağ DHCP ile')" y; then
+  NET_ADDRESS=$(ask "$(t 'Address/prefix, e.g. 192.168.2.200/24' 'Adres/önek, örn. 192.168.2.200/24')" "")
+  ip=${NET_ADDRESS%/*} pfx=${NET_ADDRESS##*/}
+  if ! { [[ $NET_ADDRESS == */* ]] && [[ $pfx =~ ^[0-9]{1,2}$ ]] && [ "$pfx" -ge 8 ] && [ "$pfx" -le 30 ] && ipv4_ok "$ip"; }; then
+    die "address: $NET_ADDRESS"
+  fi
+  NET_GATEWAY=$(ask "$(t 'Gateway' 'Ağ geçidi')" "")
+  ipv4_ok "$NET_GATEWAY" || die "gateway: $NET_GATEWAY"
+fi
+t 'Time: the router (NTP) or a DS3231 battery clock on header pins 1/3/5/25; with the clock module' \
+  'Saat: modem (NTP) ya da 1/3/5/25 pinlerindeki DS3231 pil saati; saat modülü takılıysa'; echo
+t 'the router may have no time server: the phone sets the clock once while pairing.' \
+  'modemde saat sunucusu olmasa da olur: telefon eşleşirken saati bir kez ayarlar.'; echo
+NTP=$(ask "$(t 'Time server (gateway = the router)' 'Saat sunucusu (gateway = modem)')" gateway)
+[ "$NTP" = gateway ] || ipv4_ok "$NTP" || [[ $NTP =~ ^[A-Za-z0-9.-]+$ ]] || die "time server: $NTP"
+
+PREPARE=""
+if [ $KEEP_DISK = 0 ]; then
+  echo
+  t 'The USB disk can be erased at first boot and prepared as an encrypted Purser disk.' \
+    'USB disk ilk açılışta silinip şifreli Purser diski olarak hazırlanabilir.'; echo
+  t 'Everything on it is lost. Only with exactly one USB disk connected.' \
+    'Üstündeki her şey gider. Yalnız tek bir USB disk takılıyken çalışır.'; echo
+  if yes_no "$(t 'Erase and prepare the disk' 'Disk silinip hazırlansın mı')" n; then
+    a=$(ask "$(t "type the box id ($BOX_ID) to confirm" "onaylamak için kutu kimliğini ($BOX_ID) yazın")" "")
+    [ "$(printf '%s' "$a" | tr '[:lower:]' '[:upper:]')" = "$BOX_ID" ] || die "$(t 'not confirmed; nothing written' 'onaylanmadı; hiçbir şey yazılmadı')"
+    PREPARE=$BOX_ID
+  fi
+fi
+
+KEYS=""
+if [ $NO_KEY = 0 ]; then
+  [ -n "$SSH_KEY" ] || SSH_KEY=$HOME/.ssh/id_ed25519.pub
+  if [ -r "$SSH_KEY" ]; then
+    KEYS=$(awk '$1 ~ /^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ecdsa-sha2-nistp256)$/ && $2 ~ /^[A-Za-z0-9+\/=]+$/ { print $1 " " $2 }' "$SSH_KEY")
+    [ -n "$KEYS" ] || die "$SSH_KEY: no ed25519/ecdsa public key"
+    t "Maintenance SSH (only while the switch is on): $SSH_KEY" "Bakım SSH (yalnız anahtar açıkken): $SSH_KEY"; echo
+  else
+    t 'No SSH key found: maintenance SSH will not be possible (the box page still works).' \
+      'SSH anahtarı bulunamadı: bakım SSH olmayacak (kutu sayfası yine çalışır).'; echo
+  fi
+fi
+
+# --- 2. write the image ---
+echo
+if [ $TO_FILE = 1 ]; then
+  PURSER_NO_EJECT=1 bash "$FLASH" "$IMG" "$DEV" --to-file || die "flash failed"
+else
+  as_root env PURSER_NO_EJECT=1 bash "$FLASH" "$IMG" "$DEV" ${FORCE[@]+"${FORCE[@]}"} || die "flash failed"
+fi
+
+# --- find and mount the setup partition ---
+MNT="" LOOP=""
+cleanup() {
+  if [ -n "$MNT" ]; then
+    if [ "$OS" = Darwin ] && [ $TO_FILE = 0 ]; then diskutil unmount "$MNT" >/dev/null 2>&1 || true
+    else as_root umount "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true; fi
+  fi
+  [ -n "$LOOP" ] && as_root losetup -d "$LOOP" 2>/dev/null || true
+}
+trap cleanup EXIT
+find_part() {
+  if [ $TO_FILE = 1 ]; then
+    LOOP=$(as_root losetup -f --show -P "$DEV") || return 1; sleep 1
+    lsblk -lnpo NAME,LABEL "$LOOP" | awk '$2 == "PURSERSET" { print $1; exit }'
+  elif [ "$OS" = Linux ]; then
+    as_root blockdev --rereadpt "$DEV" 2>/dev/null || as_root partprobe "$DEV" 2>/dev/null || true
+    command -v udevadm >/dev/null && as_root udevadm settle 2>/dev/null
+    lsblk -lnpo NAME,LABEL "$DEV" | awk '$2 == "PURSERSET" { print $1; exit }'
+  else
+    local p
+    for p in $(diskutil list "$DEV" 2>/dev/null | awk '{ print $NF }' | grep -E '^disk[0-9]+s[0-9]+$'); do
+      diskutil info "/dev/$p" 2>/dev/null | grep -Eq 'Volume Name: *PURSERSET$' && { echo "/dev/$p"; return 0; }
+    done
+  fi
+}
+part=""
+for i in 1 2 3 4 5 6 7 8 9 10; do part=$(find_part); [ -n "$part" ] && break; sleep 2; done
+if [ -z "$part" ] && [ $TO_FILE = 0 ]; then
+  t 'The card was written but its setup partition is not visible yet.' 'Kart yazıldı ama kurulum bölümü henüz görünmüyor.'; echo
+  ask "$(t 'Take the card out, put it back in and press Enter' 'Kartı çıkarıp tekrar takın ve Enter tuşuna basın')" "" >/dev/null
+  for i in 1 2 3 4 5 6 7 8 9 10; do part=$(find_part); [ -n "$part" ] && break; sleep 2; done
+fi
+[ -n "$part" ] || die "setup partition PURSERSET not found on $DEV"
+if [ "$OS" = Darwin ] && [ $TO_FILE = 0 ]; then
+  diskutil mount "$part" >/dev/null || die "cannot mount $part"
+  MNT=$(diskutil info "$part" | sed -n 's/^ *Mount Point: *//p')
+  [ -d "$MNT" ] || die "cannot mount $part"
+  touch "$MNT/.metadata_never_index" 2>/dev/null || true
+else
+  MNT=$(mktemp -d)
+  as_root mount -t vfat -o "uid=$(id -u),gid=$(id -g),umask=077" "$part" "$MNT" || die "cannot mount $part"
+fi
+[ -w "$MNT" ] || die "$MNT is not writable"
+
+# --- 3. the secrets, shown once ---
+CODE=$(new_code)
+REC=""
+[ -n "$PREPARE" ] && REC=$(new_recovery)
+clear 2>/dev/null || true
+echo
+echo "  NOQ-PURSER-$BOX_ID"
+echo "  ============================================================"
+echo
+t '  Write these on paper NOW. They are shown only this once and are' '  Bunları ŞİMDİ kâğıda yazın. Yalnız bu bir kez gösterilir ve'; echo
+t '  kept nowhere else (not on this computer, not on the server).' '  başka hiçbir yerde tutulmaz (ne bu bilgisayarda ne sunucuda).'; echo
+echo
+t '  Operation code (switch commands at the box page):' '  İşlem kodu (kutu sayfasındaki komutlar için):'; echo
+echo "      ${CODE:0:4} ${CODE:4:4} ${CODE:8:4}"
+echo
+if [ -n "$REC" ]; then
+  t '  Disk recovery passphrase (opens the disk without the card):' '  Disk kurtarma parolası (diski kart olmadan açar):'; echo
+  echo "      $REC"
+  echo
+fi
+echo "  ============================================================"
+word=$(t written yazdım)
+while :; do
+  a=$(ask "$(t "type \"$word\" when they are on paper" "kâğıda yazınca \"$word\" yazın")" "")
+  a=$(printf '%s' "$a" | tr '[:upper:]' '[:lower:]' | sed 's/ı/i/g; s/I/i/g')
+  [ "$a" = "$(printf '%s' "$word" | sed 's/ı/i/g')" ] && break
+done
+clear 2>/dev/null || true
+
+# --- 4. write onto the card ---
+{
+  echo "# NOQ Purser first boot settings (purser-setup); taken over and erased at first boot"
+  echo "BOX_ID=\"$BOX_ID\""
+  echo "LANG_UI=\"$LANG_UI\""
+  echo "TZ=\"$TZ_BOX\""
+  echo "NET_ADDRESS=\"$NET_ADDRESS\""
+  echo "NET_GATEWAY=\"$NET_GATEWAY\""
+  echo "NTP_SERVERS=\"$NTP\""
+  [ -n "$PREPARE" ] && echo "PREPARE_DISK=\"$PREPARE\""
+} > "$MNT/setup.conf"
+printf '%s' "$CODE" > "$MNT/code.once"
+[ -n "$REC" ] && printf '%s' "$REC" > "$MNT/recovery.once"
+[ -n "$KEYS" ] && printf '%s\n' "$KEYS" > "$MNT/ssh-keys"
+sync
+# read back
+[ "$(cat "$MNT/code.once")" = "$CODE" ] || die "read-back failed (code.once)"
+[ -z "$REC" ] || [ "$(cat "$MNT/recovery.once")" = "$REC" ] || die "read-back failed (recovery.once)"
+grep -q "^BOX_ID=\"$BOX_ID\"$" "$MNT/setup.conf" || die "read-back failed (setup.conf)"
+CODE="" REC=""
+rm -rf "$MNT/.fseventsd" "$MNT/.Spotlight-V100" "$MNT"/._* 2>/dev/null || true
+sync
+cleanup; MNT="" LOOP=""; trap - EXIT
+[ "$OS" = Darwin ] && [ $TO_FILE = 0 ] && { diskutil eject "$DEV" >/dev/null 2>&1 || true; }
+[ "$OS" = Linux ] && [ $TO_FILE = 0 ] && { as_root blockdev --flushbufs "$DEV" 2>/dev/null || true; }
+
+echo
+echo "  $(t 'Card ready.' 'Kart hazır.')"
+echo
+t '  Label for the box:' '  Kutunun etiketi:'; echo
+echo "      NOQ-PURSER-$BOX_ID      $(printf '%s' "$BOX_ID" | tr '[:upper:]' '[:lower:]').local"
+echo
+t '  Next:' '  Sonra:'; echo
+t '   1. card into the board; USB disk, Ethernet, then power' '   1. kartı karta takın; USB disk, Ethernet, sonra güç'; echo
+if [ -n "$PREPARE" ]; then
+  t '   2. first boot prepares the disk (cyan light), then shows two dots: waiting to be paired' \
+    '   2. ilk açılış diski hazırlar (camgöbeği ışık), sonra iki nokta: eşleşme bekliyor'; echo
+else
+  t '   2. first boot ends with two dots: waiting to be paired' '   2. ilk açılış iki noktayla biter: eşleşme bekliyor'; echo
+fi
+t '   3. on the server: sudo purser pair   (QR code)' '   3. sunucuda: sudo purser pair   (QR kod)'; echo
+t "   4. switch on, open https://$(printf '%s' "$BOX_ID" | tr '[:upper:]' '[:lower:]').local, scan the code, switch off" \
+  "   4. anahtarı açın, https://$(printf '%s' "$BOX_ID" | tr '[:upper:]' '[:lower:]').local açın, kodu okutun, anahtarı kapatın"; echo
+echo

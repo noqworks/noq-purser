@@ -38,6 +38,12 @@ cmd_selftest() {
   # 5. clock
   c=$(clock_state)
   t=1; [ "$c" = ok ] && t=0; st_line $t "$(msg ST_CLOCK "$(msg "CLOCK_${c^^}")")"
+  # 6. battery clock (optional): present -> it must be set and running
+  if rtc_sys >/dev/null; then
+    t=1; rtc_trusted && t=0; st_line $t "$(msg ST_RTC)"
+  else
+    say "$(msg ST_RTC_NONE)"
+  fi
 
   [ -n "$(board_led)" ] && { say "$(msg ST_LED)"; led_show alarm; sleep 3; }
   led_update

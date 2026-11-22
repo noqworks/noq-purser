@@ -39,12 +39,16 @@ fix_ownership() {
   return 0
 }
 
-# setup.conf (optional, embedded in the image) -> purser.conf + secrets. Removed afterwards.
+# setup.conf, written onto the card by "purser setup" on the user's computer, read once at first
+# boot and then shredded. It holds the language, the network and the box id; the secrets the user
+# wrote on paper arrive as one-time files next to it (recovery passphrase, operation code) and are
+# consumed by the first boot. A disk is erased only when "purser setup" left the one-time marker
+# PREPARE_DISK=<box id> after the user typed the id to confirm.
 apply_setup_conf() {
   [ -r "$SETUP_CONF" ] || return 0
-  local k v topic
+  local k v
   # shellcheck source=/dev/null
-  ( . "$SETUP_CONF"; set | grep -E '^(SERVER|SERVER_PORT|SERVER_USER|KINDS|LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|MAINT_SSH_FROM|BOARD_LED|NOTIFY_KIND|SERIAL_TTY|NET_ADDRESS|NET_GATEWAY)=' ) \
+  ( . "$SETUP_CONF"; set | grep -E '^(LANG_UI|NIGHT_AT|POLL_UNTIL|POLL_EVERY|MAX_MIN|LONG_DOW|PRUNE_DOW|DNS_SERVERS|NTP_SERVERS|NTP_POOL|BOARD_LED|SERIAL_TTY|NET_ADDRESS|NET_GATEWAY|LIGHT_KIND|LIGHT_BRIGHTNESS)=' ) \
     > "$RUN_DIR/setup.vars" || true
   [ -r "$CONF" ] || install -m 0644 "$PURSER_LIB/purser.conf.example" "$CONF"
   while IFS='=' read -r k v; do
@@ -54,28 +58,57 @@ apply_setup_conf() {
   rm -f "$RUN_DIR/setup.vars"
   v=$(sed -n 's/^TZ=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
   [ -n "$v" ] && [ -e "/usr/share/zoneinfo/$v" ] && ln -sf "/usr/share/zoneinfo/$v" /etc/localtime && echo "$v" > /etc/timezone
-  v=$(sed -n 's/^SERVER_HOSTKEY_FP=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
-  [ -n "$v" ] && setup_mark hostkey_fp "$v"
-  v=$(sed -n 's/^DISK_MODE=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
-  [ -n "$v" ] && setup_mark disk_mode "$v"
-  # notification secrets
-  ( umask 077
-    if [ ! -s "$NOTIFY" ]; then
-      v=$(sed -n 's/^WEBHOOK_URL=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
-      if [ -n "$v" ]; then
-        printf 'WEBHOOK_URL=%s\nWEBHOOK_TOKEN=%s\n' "$v" "$(sed -n 's/^WEBHOOK_TOKEN=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)" > "$NOTIFY"
-      else
-        v=$(sed -n 's/^NTFY_SERVER=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
-        topic=$(sed -n 's/^NTFY_TOPIC=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
-        if [ -n "$v" ]; then
-          [ -n "$topic" ] || topic=purser-$(head -c 600 /dev/urandom | tr -dc 'a-z0-9' | cut -c1-20)
-          printf 'NTFY_URL=%s/%s\nNTFY_TOKEN=%s\n' "${v%/}" "$topic" "$(sed -n 's/^NTFY_TOKEN=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)" > "$NOTIFY"
-        fi
-      fi
-    fi )
+  v=$(sed -n 's/^BOX_ID=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
+  if [[ $v =~ ^[A-HJ-NP-Z2-9]{4}$ ]]; then install -d -m 0755 /etc/purser; echo "$v" > /etc/purser/id; fi
+  v=$(sed -n 's/^PREPARE_DISK=//p' "$SETUP_CONF" | tr -d "\"'" | tail -1)
+  [ -n "$v" ] && [ "$v" = "$(cat /etc/purser/id 2>/dev/null)" ] && setup_mark prepare_disk "$v"
   shred -u "$SETUP_CONF" 2>/dev/null || rm -f "$SETUP_CONF"
   load_config
   net_apply
+}
+
+# First boot, no console: erase the one USB disk and make it a Purser disk. Only with the marker
+# from "purser setup" (the user typed the box id there); with no disk or more than one it stops.
+# The recovery passphrase was generated and shown on the computer; it arrives as a one-time file.
+disk_prepare_unattended() {
+  local disks dev n cipher=() rec=$SECRETS/recovery.once
+  disk_usb_wait || { echo no_disk > "$RUN_DIR/prepare.reason"; return 1; }
+  disks=$(usb_disks); n=$(grep -c . <<< "$disks")
+  [ "$n" -eq 1 ] || { echo "disks_$n" > "$RUN_DIR/prepare.reason"; return 1; }
+  [ -s "$rec" ] || { echo no_recovery > "$RUN_DIR/prepare.reason"; return 1; }
+  dev=$(awk '{ print $1 }' <<< "$disks")
+  log "first boot: preparing $dev (marker from purser setup)"
+  if cryptsetup benchmark -c aes-xts-plain64 -s 512 2>/dev/null | awk '/aes-xts/ { exit !($5 + 0 >= 150) }'; then
+    cipher=(--cipher aes-xts-plain64 --key-size 512)
+  else
+    cipher=(--cipher xchacha12,aes-adiantum-plain64 --key-size 256)
+  fi
+  install -d -m 0700 "$SECRETS"
+  ( umask 077; head -c 64 /dev/urandom > "$LUKS_KEY" ); chmod 0400 "$LUKS_KEY"
+  wipefs -a "$dev" >/dev/null 2>&1 || true
+  cryptsetup luksFormat --type luks2 --batch-mode "${cipher[@]}" --key-file "$LUKS_KEY" "$dev" || { echo luks > "$RUN_DIR/prepare.reason"; return 1; }
+  cryptsetup luksAddKey --key-file "$LUKS_KEY" "$dev" "$rec" || { echo recovery > "$RUN_DIR/prepare.reason"; return 1; }
+  shred -u "$rec" 2>/dev/null || rm -f "$rec"
+  cryptsetup luksHeaderBackup "$dev" --header-backup-file "$SECRETS/luks-baslik.img"; chmod 0400 "$SECRETS/luks-baslik.img"
+  cryptsetup open --key-file "$LUKS_KEY" "$dev" "$MAP"
+  mkfs.btrfs -q -f -L purser "$MAPPER_DIR/$MAP"
+  conf_set LUKS_UUID "$(cryptsetup luksUUID "$dev")"
+  install -d -m 0755 "$MNT"
+  mount -o noatime "$MAPPER_DIR/$MAP" "$MNT"
+  install -d -m 0755 "$GEN_DIR" "$AUDIT"
+  install -d -m 0700 "$AUDIT/liste" "$AUDIT/meta" "$AUDIT/supheli" "$AUDIT/temiz" "$AUDIT/pin"
+  disk_close || true
+  setup_mark disk new; setup_mark prepare_disk ""
+  log "first boot: disk prepared"
+}
+
+# The operation code was generated and shown on the computer; the card carries it once.
+code_from_card() {
+  local f=$SECRETS/code.once c
+  [ -s "$f" ] || return 0
+  c=$(tr -cd '0-9' < "$f")
+  shred -u "$f" 2>/dev/null || rm -f "$f"
+  if [[ $c =~ ^[0-9]{12}$ ]] && damm_valid "$c"; then code_store "$c"; log "operation code set from the card"; fi
 }
 
 # Wired network. NET_ADDRESS empty: DHCP, as the image comes. NET_ADDRESS="192.0.2.15/24" and
@@ -138,18 +171,24 @@ ensure_known_hosts() {
 render() {   # render <template> <output>: replaces @KEY@ with config values
   local in=$TEMPLATES/$1 out=$2 line k
   local s; s=$(cat "$in")
-  for k in SERVER SERVER_PORT MAINT_SSH_FROM CLOCK_JUMP_MAX NTP_POOL; do s=${s//@$k@/${!k}}; done
-  s=${s//@DNS_SERVERS@/$(printf '%s' "$DNS_SERVERS" | sed 's/ \+/, /g')}
-  line=""; for k in $NTP_SERVERS; do line+="server $k iburst"$'\n'; done
+  for k in SERVER SERVER_PORT CLOCK_JUMP_MAX NTP_POOL; do s=${s//@$k@/${!k}}; done
+  if [ -n "$SERVER" ]; then s=${s//@SERVER_RULE@/ip daddr $SERVER tcp dport $SERVER_PORT accept}
+  else s=${s//@SERVER_RULE@/# not paired yet: no server}; fi
+  if [ -n "$DNS_SERVERS" ]; then
+    s=${s//@DNS_RULE@/ip daddr \{ $(printf '%s' "$DNS_SERVERS" | sed 's/ \+/, /g') \} meta l4proto \{ tcp, udp \} th dport 53 accept}
+  else s=${s//@DNS_RULE@/# no DNS: the box talks to addresses only}; fi
+  # time: the local network's router ("gateway"), or the addresses given; a public pool only if asked for
+  line=""; for k in $NTP_SERVERS; do
+    [ "$k" = gateway ] && k=$(ip -4 route show default 2>/dev/null | awk '{ print $3; exit }')
+    [ -n "$k" ] && line+="server $k iburst"$'\n'
+  done
+  [ -n "$NTP_POOL" ] && line+="pool $NTP_POOL iburst maxsources 3"$'\n'
   s=${s//@NTP_SERVER_LINES@/$line}
-  if [ -n "$MAINT_SSH_FROM" ]; then s=${s//@MAINT_SSH_RULE@/ip saddr $MAINT_SSH_FROM tcp dport 22 accept}
-  else s=${s//@MAINT_SSH_RULE@/# maintenance SSH: off (MAINT_SSH_FROM is empty)}; fi
   printf '%s\n' "$s" > "$out.new"; mv -f "$out.new" "$out"
 }
 
 apply_config() {
-  need_config SERVER
-  [[ $SERVER =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { say "$(msg E_SERVER_IP)" >&2; return 1; }
+  if [ -n "$SERVER" ] && ! [[ $SERVER =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then say "$(msg E_SERVER_IP)" >&2; return 1; fi
   local root=${APPLY_ROOT:-}
   render nftables.conf.in "$root/etc/nftables.conf"
   render chrony.conf.in "$root/etc/chrony/chrony.conf"
@@ -162,13 +201,14 @@ apply_config() {
   if command -v nft >/dev/null 2>&1; then
     nft -c -f /etc/nftables.conf && nft -f /etc/nftables.conf
     systemctl enable nftables.service >/dev/null 2>&1 || true
+    # reloading the rules empties the maintenance chains: while the switch is on, open them again
+    [ -e "$RUN_DIR/maint" ] && [ -x /usr/local/sbin/purser-maint ] && /usr/local/sbin/purser-maint reopen || true
   fi
   dns_apply
-  if [ -n "$MAINT_SSH_FROM" ]; then
-    systemctl unmask ssh.service >/dev/null 2>&1 || true; systemctl enable --now ssh.service >/dev/null 2>&1 || true
-  else
-    systemctl disable --now ssh.service ssh.socket >/dev/null 2>&1 || true; systemctl mask ssh.service >/dev/null 2>&1 || true
-  fi
+  # SSH (and the page) run only while the maintenance switch is on; purser-maint starts and stops them.
+  systemctl unmask ssh.service >/dev/null 2>&1 || true
+  systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
+  [ -e "$RUN_DIR/maint" ] || systemctl stop ssh.service ssh.socket >/dev/null 2>&1 || true
   systemctl daemon-reload
   systemctl restart chrony 2>/dev/null || true
   systemctl try-restart purser.timer 2>/dev/null || true
@@ -279,17 +319,52 @@ state_rebuild() {
   log "state rebuilt from disk: last published $last, last sound ${sound:-none}"
 }
 
+# "purser setup" on the user's computer writes a small FAT partition (label PURSERSET) after
+# flashing: setup.conf, the one-time secrets (recovery passphrase, operation code) and optional
+# maintenance SSH keys. The first boot takes them over and then overwrites the whole partition.
+setup_partition() {
+  local dev m=$RUN_DIR/setup-part f
+  dev=$(blkid -L PURSERSET 2>/dev/null || true)
+  [ -n "$dev" ] && [ -b "$dev" ] || return 0
+  install -d -m 0700 "$m"
+  mount -o ro "$dev" "$m" 2>/dev/null || return 0
+  install -d -m 0700 "$SECRETS" /etc/purser
+  [ -s "$m/setup.conf" ] && install -m 0600 "$m/setup.conf" "$SETUP_CONF"
+  for f in recovery.once code.once; do [ -s "$m/$f" ] && install -m 0400 "$m/$f" "$SECRETS/$f"; done
+  if [ -s "$m/ssh-keys" ]; then
+    install -d -m 0700 /root/.ssh
+    grep -E '^(ssh-ed25519|sk-ssh-ed25519@openssh.com|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+( [^ ]*)?$' "$m/ssh-keys" > /root/.ssh/authorized_keys || true
+    chmod 0600 /root/.ssh/authorized_keys
+  fi
+  umount "$m"
+  # the secrets were on a FAT file system: nothing of it is kept
+  f=$(blockdev --getsize64 "$dev" 2>/dev/null || echo 0)
+  head -c "$f" /dev/zero > "$dev" 2>/dev/null || true
+  sync
+  log "first boot: settings taken from the setup partition; the partition was overwritten"
+}
+
 # --- first boot (unattended part) ---
 cmd_firstboot() {
   [ "$(setup_get state)" = "done" ] && return 0
+  setup_partition
   ensure_users; fix_ownership
   apply_setup_conf
-  if [ ! -r "$CONF" ]; then log "no configuration yet; waiting for 'setup' on the serial console"; led_show setup; return 0; fi
+  # No card settings is fine: defaults (DHCP, English) and the box waits to be paired.
+  [ -r "$CONF" ] || install -m 0644 "$PURSER_LIB/purser.conf.example" "$CONF"
   load_config
   [ -n "$SERVER" ] && apply_config || true
   ensure_ssh_key
   ensure_known_hosts && setup_mark hostkey "done"
-  if [ -r "$LUKS_KEY" ] && { [ -n "$LUKS_UUID" ] || [ "$(setup_get disk_mode)" = adopt ]; }; then disk_adopt >/dev/null || true; fi
+  [ -s /etc/purser/id ] || box_id_new
+  box_hostname
+  code_is_set || code_from_card
+  if [ -n "$(setup_get prepare_disk)" ] && [ -z "$LUKS_UUID" ]; then
+    light_set checking
+    if disk_prepare_unattended; then notify disk_prepared default N_DISK_PREPARED
+    else notify disk_prepare_failed urgent N_DISK_PREPARE_FAILED "$(cat "$RUN_DIR/prepare.reason" 2>/dev/null || echo -)"; light_set fault; fi
+    load_config
+  elif [ -r "$LUKS_KEY" ]; then disk_adopt >/dev/null || true; fi
   local fails=0
   install -d -m 0755 "$RUN_DIR"; cmd_selftest > "$RUN_DIR/selftest.txt" 2>&1 || fails=$?
   log "first boot self-test: $fails failures"
@@ -308,8 +383,7 @@ cmd_firstboot() {
 # commands at the box, and a card moved from an older release has none yet. Without it the
 # nightly job runs and a weekly reminder goes out until "setup-code" is run at the console.
 setup_missing() {
-  [ -s "$SSH_DIR/known_hosts" ] || echo hostkey
-  [ -s "$NOTIFY" ] || echo notify
+  [ -n "$SERVER" ] && [ -s "$SSH_DIR/known_hosts" ] || echo paired
   [ -n "$LUKS_UUID" ] || echo disk
   return 0
 }
@@ -353,7 +427,7 @@ cmd_setup() {
   apply_config || true
   ensure_ssh_key
   say "$(msg W_PUBKEY)"; say ""
-  say "  purser-admit $(box_ip) '$(cat "$SSH_DIR/id_ed25519.pub")'"
+  say "  purser-admit add $(cat /etc/purser/id 2>/dev/null) $(box_ip) '$(cut -d' ' -f1,2 "$SSH_DIR/id_ed25519.pub")'"
   say ""
   printf '%s' "$(msg P_ENTER)" >&2; read -r _ || true
   local fp t=$SSH_DIR/known_hosts.new
@@ -365,12 +439,6 @@ cmd_setup() {
       if remote latest >/dev/null 2>&1; then say "$(msg I_GATE_OK)"; else say "$(msg E_GATE_LATEST)"; fi
     else rm -f "$t"; fi
   fi
-  if [ ! -s "$NOTIFY" ]; then
-    local srv; srv=$(ask W_NTFY "https://ntfy.sh")
-    ( umask 077; printf 'NTFY_URL=%s/purser-%s\nNTFY_TOKEN=\n' "${srv%/}" "$(head -c 600 /dev/urandom | tr -dc 'a-z0-9' | cut -c1-20)" > "$NOTIFY" )
-  fi
-  say "$(msg W_NTFY_SUBSCRIBE "$(secret_get NTFY_URL)$(secret_get WEBHOOK_URL)")"
-  printf '%s' "$(msg P_ENTER)" >&2; read -r _ || true
   notify test default N_TEST
   if [ -z "$LUKS_UUID" ]; then
     if [ -r "$LUKS_KEY" ]; then disk_adopt || true

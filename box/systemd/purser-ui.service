@@ -1,0 +1,11 @@
+[Unit]
+Description=NOQ Purser page (HTTPS, local subnet, only while the maintenance switch is on)
+# started and stopped by purser-maint; never enabled on its own
+BindsTo=purser-maint.service
+After=purser-maint.service
+
+[Service]
+ExecStart=/usr/local/sbin/purser-ui
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=no

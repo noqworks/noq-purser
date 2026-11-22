@@ -133,7 +133,8 @@ box_up() {
   rm -f /etc/purser/ssh/id_ed25519 /etc/purser/ssh/id_ed25519.pub
   ssh-keygen -q -t ed25519 -N '' -C purser@lab -f /etc/purser/ssh/id_ed25519
   chown purser-rsync:purser-rsync /etc/purser/ssh/id_ed25519 /etc/purser/ssh/id_ed25519.pub
-  /usr/local/sbin/purser-admit 127.0.0.1 "$(cat /etc/purser/ssh/id_ed25519.pub)" >/dev/null
+  echo LAB2 > /etc/purser/id
+  /usr/local/sbin/purser-admit add LAB2 127.0.0.1 "$(cut -d" " -f1,2 /etc/purser/ssh/id_ed25519.pub)" >/dev/null
   sleep 1
   ssh-keyscan -T 5 -p 2222 -t ed25519 127.0.0.1 2>/dev/null > /etc/purser/ssh/known_hosts
   [ -s /etc/purser/ssh/known_hosts ] || { echo "gate did not answer" >&2; exit 1; }
@@ -146,7 +147,6 @@ SYS_DIR="/run/sim/sys"
 DEV_DIR="/dev"
 BY_UUID_DIR="/run/sim/by-uuid"
 MAPPER_DIR="/run/sim/mapper"
-NOTIFY_CA="/etc/purser/test-ca.pem"
 DISK_WAIT="3"
 EOF2
 }
@@ -158,7 +158,6 @@ SERVER_USER="purser"
 KINDS="pgbackrest:pgdemo borg:borgdemo restic:resticdemo dir:dumps"
 LUKS_UUID="test-0001"
 LANG_UI="en"
-NOTIFY_KIND="ntfy"
 POLL_UNTIL="00:00"
 POLL_EVERY="1"
 MAX_MIN="80"
@@ -186,36 +185,7 @@ disk_up() {
   rm -f "$SIM/luks-opens" "$SIM/bridge-hung" "$SIM/close-fails" "$SIM/chrony" "$SIM/chrony-offset" "$SIM/smart-rc"
 }
 
-notify_endpoint() {
-  # HTTPS endpoint that records every notification exactly as received (headers + body).
-  install -d /run/purser-test
-  if [ ! -s /etc/purser/test-ca.pem ]; then
-    openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=ntfy.test -addext subjectAltName=DNS:ntfy.test \
-      -keyout /run/purser-test/key.pem -out /etc/purser/test-ca.pem >/dev/null 2>&1
-  fi
-  grep -q ' ntfy.test' /etc/hosts || echo '127.0.0.1 ntfy.test' >> /etc/hosts
-  printf 'NTFY_URL=https://ntfy.test/purser-lab\nNTFY_TOKEN=\n' > /etc/purser/sirlar/bildirim; chmod 0600 /etc/purser/sirlar/bildirim
-  pkill -f purser-test-endpoint 2>/dev/null || true
-  cat > /run/purser-test/endpoint.py <<'EOF'
-import http.server, json, ssl, sys
-LOG = "/run/purser-test/notify.log"
-class H(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        n = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(n).decode("utf-8", "replace")
-        with open(LOG, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"path": self.path, "headers": dict(self.headers), "body": body}, ensure_ascii=False) + "\n")
-        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
-    def log_message(self, *a): pass
-s = http.server.HTTPServer(("127.0.0.1", 443), H)
-c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); c.load_cert_chain("/etc/purser/test-ca.pem", "/run/purser-test/key.pem")
-s.socket = c.wrap_socket(s.socket, server_side=True)
-s.serve_forever()
-EOF
-  : > /run/purser-test/notify.log
-  (exec -a purser-test-endpoint python3 -I /run/purser-test/endpoint.py >/dev/null 2>&1 &)
-  sleep 1
-}
+notify_reset() { rm -f /run/purser-test/notify.cursor /run/purser-test/notes.mark; rm -f /srv/server/ack/.notes /srv/server/cache/.notes-seen; }
 
 reset_box_state() {
   rm -rf /var/lib/purser /var/lib/purser-gelen /run/purser; install -d -m 0700 /var/lib/purser
@@ -225,9 +195,9 @@ reset_box_state() {
 
 install -d /run/purser-test
 case ${1:-full} in
-  full) no_clock_daemon; sanitize_dev; fake_tools; server_up; box_up; disk_up; notify_endpoint ;;
-  reset-box) reset_box_state; disk_up; : > /run/purser-test/notify.log ;;
+  full) no_clock_daemon; sanitize_dev; fake_tools; server_up; box_up; disk_up; notify_reset ;;
+  reset-box) reset_box_state; disk_up; notify_reset ;;
   reset-all) reset_box_state; rm -rf /srv/server/generation/* /srv/server/ack/* /srv/server/ack/.contact /srv/server/cache/* /srv/src/*
-             disk_up; : > /run/purser-test/notify.log ;;
+             disk_up; notify_reset ;;
   paths) lab_paths ;;
 esac

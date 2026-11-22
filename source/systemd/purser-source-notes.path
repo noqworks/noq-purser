@@ -1,0 +1,8 @@
+[Unit]
+Description=NOQ Purser: raise the box's alarms as soon as they arrive
+
+[Path]
+PathChanged=/srv/purser/ack/.notes
+
+[Install]
+WantedBy=multi-user.target

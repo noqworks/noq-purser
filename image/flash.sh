@@ -34,7 +34,15 @@ IMG=${1:-} DEV=${2:-} FORCE_SIZE=0 TO_FILE=0
 [ "${3:-}" = --to-file ] && TO_FILE=1
 [ -n "$IMG" ] && [ -n "$DEV" ] || { sed -n '2,13p' "$0"; exit 2; }
 [ -r "$IMG" ] || die "cannot read $IMG"
-case $IMG in *.img.xz) CAT=(xz -dc) ;; *.img) CAT=(cat) ;; *) die "expected an .img.xz or .img file" ;; esac
+# macOS has no xz unless installed; its python3 has lzma
+unxz_py() { python3 -c 'import lzma, shutil, sys; shutil.copyfileobj(lzma.open(sys.argv[1]), sys.stdout.buffer, 1 << 22)' "$1"; }
+case $IMG in
+  *.img.xz) if command -v xz >/dev/null; then CAT=(xz -dc)
+            elif python3 -c 'import lzma' 2>/dev/null; then CAT=(unxz_py)
+            else die "needs xz (or python3) to unpack $IMG"; fi ;;
+  *.img) CAT=(cat) ;;
+  *) die "expected an .img.xz or .img file" ;;
+esac
 
 # 1. checksum
 SUM=$IMG.sha256
@@ -112,9 +120,11 @@ else
 fi
 sync
 if [ $TO_FILE = 0 ]; then
-  if [ "$OS" = Linux ]; then blockdev --flushbufs "$DEV" 2>/dev/null || true; else diskutil eject "$DEV" >/dev/null || true; fi
+  if [ "$OS" = Linux ]; then blockdev --flushbufs "$DEV" 2>/dev/null || true
+  elif [ "${PURSER_NO_EJECT:-0}" != 1 ]; then diskutil eject "$DEV" >/dev/null || true; fi
 fi
 echo
+[ "${PURSER_NO_EJECT:-0}" = 1 ] && { echo "written."; exit 0; }
 echo "done. Next:"
 echo "  1. moving from an older card? run image/purser-card-migrate --from <old card> --to $DEV first"
 echo "     (or migrate into the .img before flashing)"

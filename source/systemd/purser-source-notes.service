@@ -1,0 +1,6 @@
+[Unit]
+Description=NOQ Purser: raise the box's alarms (notes)
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/sbin/purser-source notes

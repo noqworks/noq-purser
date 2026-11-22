@@ -1,0 +1,160 @@
+#!/usr/bin/python3 -I
+"""NOQ Purser: the maintenance switch (toggle between header pins 12 and 14: PC11 and GND).
+
+Contact closed = maintenance on. While it is on, and only then, the box listens on the local
+subnet: the web page (HTTPS, purser-ui.service), SSH with keys (if a key is set) and the
+<id>.local name (avahi). Contact open = everything stops, sessions are dropped, the firewall
+rules go away. If this watcher dies, systemd runs "purser-maint off" (ExecStopPost): the safe
+side is closed. There is no setting that opens anything without the switch.
+"""
+import ipaddress, os, shlex, signal, subprocess, sys, time
+
+RUN_DIR = os.environ.get("RUN_DIR", "/run/purser")
+FLAG = os.path.join(RUN_DIR, "maint")
+CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
+NFT_TABLE = "purser"
+REMIND_S = 2 * 3600
+
+
+def conf(key, default):
+    """A key of the sourced purser.conf (quotes and trailing # comments allowed)."""
+    try:
+        for line in open(CONF, encoding="utf-8"):
+            line = line.strip()
+            if line.startswith(key + "="):
+                parts = shlex.split(line.split("=", 1)[1], comments=True)
+                return (parts[0] if parts else "") or default
+    except (OSError, ValueError):
+        pass
+    return default
+
+
+GPIO = conf("MAINT_GPIO", "300b000.pinctrl:75")   # pin controller label : line (PC11 = 2*32+11)
+
+
+def log(msg):
+    print("purser-maint: " + msg, file=sys.stderr, flush=True)
+    subprocess.run(["logger", "-t", "purser-maint", msg], check=False)
+
+
+def sh(*cmd, quiet=True):
+    return subprocess.run(list(cmd), check=False, capture_output=quiet, text=True)
+
+
+def chip_and_line():
+    label, line = GPIO.rsplit(":", 1)
+    out = sh("gpiodetect").stdout
+    for row in out.splitlines():
+        if "[" + label + "]" in row:
+            return row.split()[0], line
+    raise SystemExit("gpio chip %s not found" % label)
+
+
+def contact_closed(chip, line):
+    r = sh("gpioget", "-B", "pull-up", chip, line)
+    return r.stdout.strip() == "0"
+
+
+def local_nets():
+    nets = []
+    for row in sh("ip", "-4", "-o", "addr", "show", "scope", "global").stdout.splitlines():
+        parts = row.split()
+        if "inet" in parts:
+            iface = ipaddress.ip_interface(parts[parts.index("inet") + 1])
+            nets.append(str(iface.network))
+    return nets
+
+
+def nft_ready():
+    return sh("nft", "list", "chain", "inet", NFT_TABLE, "maint_in").returncode == 0
+
+
+def firewall_open():
+    if not nft_ready():
+        log("no purser firewall table: nothing to open (development box)")
+        return
+    sh("nft", "flush", "chain", "inet", NFT_TABLE, "maint_in")
+    sh("nft", "flush", "chain", "inet", NFT_TABLE, "maint_out")
+    for net in local_nets():
+        sh("nft", "add", "rule", "inet", NFT_TABLE, "maint_in", "ip", "saddr", net, "tcp", "dport", "{ 22, 443 }", "accept")
+        sh("nft", "add", "rule", "inet", NFT_TABLE, "maint_in", "ip", "saddr", net, "udp", "dport", "5353", "accept")
+    # mDNS announcements of <id>.local
+    sh("nft", "add", "rule", "inet", NFT_TABLE, "maint_out", "ip", "daddr", "224.0.0.251", "udp", "dport", "5353", "accept")
+
+
+def firewall_close():
+    if nft_ready():
+        sh("nft", "flush", "chain", "inet", NFT_TABLE, "maint_in")
+        sh("nft", "flush", "chain", "inet", NFT_TABLE, "maint_out")
+
+
+def ssh_allowed():
+    try:
+        return os.path.getsize("/root/.ssh/authorized_keys") > 0
+    except OSError:
+        return False
+
+
+def turn_on():
+    os.makedirs(RUN_DIR, exist_ok=True)
+    open(FLAG, "w").write(str(int(time.time())) + "\n")
+    firewall_open()
+    sh("systemctl", "start", "purser-ui.service")
+    sh("systemctl", "start", "avahi-daemon.service")
+    if ssh_allowed():
+        sh("systemctl", "start", "ssh.service")
+    sh("/usr/local/sbin/purser", "notify-maint", "on")
+    log("maintenance on")
+
+
+def turn_off(reason="switch"):
+    sh("systemctl", "stop", "purser-ui.service", "avahi-daemon.service", "avahi-daemon.socket", "ssh.service", "ssh.socket")
+    # open sessions are not part of ssh.service: end them too
+    sh("pkill", "-TERM", "-f", r"^sshd(-session)?: ")
+    firewall_close()
+    was_on = os.path.exists(FLAG)
+    try:
+        os.unlink(FLAG)
+    except FileNotFoundError:
+        pass
+    if was_on:
+        sh("/usr/local/sbin/purser", "notify-maint", "off")
+        log("maintenance off (%s)" % reason)
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "off":   # ExecStopPost / manual
+        turn_off("stop")
+        return 0
+    if len(sys.argv) > 1 and sys.argv[1] == "reopen":   # after the firewall was reloaded while the switch is on
+        if os.path.exists(FLAG):
+            firewall_open()
+        return 0
+    chip, line = chip_and_line()
+    stop = []
+    signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+    signal.signal(signal.SIGINT, lambda *_: stop.append(1))
+    on = None
+    since = 0.0
+    reminded = 0.0
+    while not stop:
+        # two equal reads 150 ms apart = a settled contact (no bounce)
+        a = contact_closed(chip, line)
+        time.sleep(0.15)
+        b = contact_closed(chip, line)
+        if a == b and a != on:
+            on = a
+            if on:
+                turn_on(); since = reminded = time.monotonic()
+            else:
+                turn_off()
+        if on and time.monotonic() - reminded >= REMIND_S:
+            reminded = time.monotonic()
+            sh("/usr/local/sbin/purser", "notify-maint", "still-on", str(int((reminded - since) // 3600)))
+        time.sleep(0.25)
+    turn_off("stop")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

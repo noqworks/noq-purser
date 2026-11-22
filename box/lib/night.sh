@@ -113,11 +113,13 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
     abort_window partial "$id" N_NO_TIME "$id"; return 1
   fi
   rsync_opts
+  light_set pulling
   if ! sandbox "$RSYNC_USER" "$STAGING" "$t" net -- "${RSYNC_OPTS[@]}" -e "$(ssh_e)" "$SERVER_USER@$SERVER:$id/" "$STAGING/"; then
     abort_window partial "$id" N_PARTIAL "$MAX_MIN"; return 1
   fi
 
   local r
+  light_set checking
   if ! r=$(verify tree "$STAGING" "$w/list"); then
     if [ "$r" = TREE_TYPE ]; then
       btrfs -q subvolume delete "$STAGING" || true

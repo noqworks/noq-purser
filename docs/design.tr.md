@@ -214,26 +214,31 @@ Kartta pilli saat yok. Saat ağdan gelir (chrony; `NTP_SERVERS`, ör. yönlendir
 ## Ağ
 
 nftables gelen her şeyi düşürür (yalnız DHCP yanıtları ve kutunun kendi bağlantılarının
-yanıtları). Giden yalnız: sunucu kapısı (tek adres, tek port), yapılandırılan iki DNS çözümleyici
-(`DNS_SERVERS`; yerel ağın çözümleyicisi değil, o sunucu olabilir), NTP, DHCP ve bildirim
-sunucusuna HTTPS. Bildirim adresi her gönderimden önce yeniden çözülür, nftables kümesi yenilenir.
-Bakım SSH'si yalnız `MAINT_SSH_FROM` doluysa vardır (yalnız anahtarla, yalnız o adresten). Paket
-indirmeye kural yoktur: kurulumdan sonra kutu kod ya da paket çekemez. Wi-Fi ve Bluetooth
+yanıtları). Giden yalnız: sunucu kapısı (tek adres, tek port), NTP (`NTP_SERVERS`, varsayılan
+modem), DHCP ve yapılandırılmışsa DNS (`DNS_SERVERS`, varsayılan boş: kutunun ada ihtiyacı yok).
+Paket indirmeye kural yoktur: kurulumdan sonra kutu kod ya da paket çekemez. Wi-Fi ve Bluetooth
 modülleri kara listede; yalnız kablolu.
+
+Bakım anahtarı açıkken (`purser-maint`, bir GPIO girişi) iki ek zincir yerel ağa sayfayı (HTTPS
+443) ve SSH'yi (22, yalnız anahtarla, yalnız kartla bir anahtar geldiyse) açar, mDNS `<kimlik>.local`
+adını duyurur. Kapatmak ya da izleyicinin ölmesi o zincirleri boşaltır ve hizmetleri durdurur.
+Açık kaldıkça iki saatte bir hatırlatma gider.
 
 ## Bildirim
 
 Yalnız alarm ("tamamlandı" dışındaki her şey; "tamamlandı" günlüğe ve onay olarak sunucuya
-gider). Kanal: `curl` ile ntfy (varsayılan; kendi ntfy sunucunuz ya da ntfy.sh) ya da düz webhook
-POST. Adres ve belirteç `/etc/purser/sirlar/bildirim` dosyasında (yalnız root). İletiler yalnız
-çekirdeğin ürettiği durumu taşır (katalog metni, sayılar, nesil kimlikleri, neden kodları);
-sunucudan gelen dosya adı, yol, not ya da içerik asla. Gidemeyen bildirim kuyruğa girer ve
-saatte bir yeniden denenir (en yeni 50). Dil: `LANG_UI=en|tr`.
+gider). Alarm aynı kapıdan geri gider: `note <olay>`, sabit bir alfabe (`[a-z_]`, en çok 32
+karakter); sunucu kaydeder ve `ALERT_CMD` ile yükseltir. Metin kutuda kalır (günlük, sayfa):
+yalnız çekirdeğin ürettiği durumu taşır (katalog metni, sayılar, nesil kimlikleri, neden kodları);
+sunucudan gelen dosya adı, yol, not ya da içerik asla. Kutu eşleşene ya da kapıya ulaşılana kadar
+alarmlar kuyrukta bekler ve saatte bir yeniden denenir (en yeni 50). Üçüncü taraf hizmet yok,
+internet yok. Dil: `LANG_UI=en|tr`.
 
 ## Kutunun başında
 
-Ekran ve düğme yok. Durum `status` komutunda (seri konsol), bildirimde ve kartın LED'inde. Seri
-konsolda oturum açma yerine kısıtlı `purser-console` çalışır:
+Ekran yok. Durum LED çubuğunda (bkz. [hardware.tr.md](hardware.tr.md)), bakım anahtarı açıkken
+`https://<kimlik>.local` sayfasında (işlemleri işlem kodu ister) ve `status` komutunda. Seri konsolu
+kullananlar için oturum açma yerine kısıtlı `purser-console` çalışır:
 
 | Komut | Kod | Ne yapar |
 | --- | --- | --- |

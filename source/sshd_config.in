@@ -3,7 +3,7 @@
 ListenAddress @LISTEN@:@PORT@
 HostKey /etc/purser/ssh/ssh_host_ed25519_key
 PidFile /run/purser-sshd.pid
-AllowUsers @USER@@@BOX_IP@
+AllowUsers @ALLOW@
 AuthorizedKeysFile /etc/purser/ssh/authorized_keys
 AuthenticationMethods publickey
 PubkeyAuthentication yes
@@ -11,7 +11,8 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 UsePAM no
-ForceCommand @PREFIX@/sbin/purser-gate
+# No ForceCommand: every key line (written only by purser-admit, root-owned file) carries its own
+# command="@PREFIX@/sbin/purser-gate <box id>" with "restrict"; the one-time pairing key runs "--pair".
 PermitTTY no
 DisableForwarding yes
 PermitTunnel no

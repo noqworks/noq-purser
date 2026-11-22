@@ -23,13 +23,13 @@ load_config() {
   : "${KEEP_DAILY:=14}" "${KEEP_WEEKLY:=8}" "${KEEP_MONTHLY:=12}"
   : "${WARN_FACTOR:=3}" "${STALE_NIGHTS:=2}" "${LATE_H:=30}" "${KINDS:=}"
   # --- keys added in 1.0 ---
-  : "${LANG_UI:=en}" "${NOTIFY_KIND:=ntfy}" "${NOTIFY_CA:=}"
+  : "${LANG_UI:=en}" "${LIGHT_KIND:=rgbw}" "${LIGHT_BRIGHTNESS:=0.35}" "${MAINT_GPIO:=300b000.pinctrl:75}"
   : "${NIGHT_AT:=05:15}" "${PRUNE_DOW:=$LONG_DOW}" "${LABEL_MAX_DAYS:=2}"
   : "${MASS_DELETE_PCT:=50}" "${MASS_CHANGE_PCT:=50}" "${MASS_MIN_FILES:=20}"
   : "${DISK_MIN_FREE_PCT:=10}" "${DISK_WAIT:=60}" "${DISK_ON_MIN:=30}"
   : "${MAX_FILE_SIZE:=256G}" "${LIST_MAX_SIZE:=512M}" "${RSYNC_IO_TIMEOUT:=300}" "${RSYNC_BWLIMIT:=}"
-  : "${DNS_SERVERS:=1.1.1.1 9.9.9.9}" "${NTP_SERVERS:=}" "${NTP_POOL:=pool.ntp.org}" "${CLOCK_JUMP_MAX:=600}"
-  : "${MAINT_SSH_FROM:=}" "${SERIAL_TTY:=ttyS0}" "${IMAGE_MAX_DAYS:=182}"
+  : "${DNS_SERVERS:=}" "${NTP_SERVERS:=gateway}" "${NTP_POOL:=}" "${CLOCK_JUMP_MAX:=600}"
+  : "${SERIAL_TTY:=ttyS0}" "${IMAGE_MAX_DAYS:=182}"
   : "${SCRUB_EVERY_DAYS:=30}" "${SMART_EVERY_DAYS:=30}" "${RESERVE_MIN:=10}"
   : "${LONG_MIN_NIGHTS:=4}" "${MONTHLY_MIN_WEEKS:=3}"
   : "${CODE_ATTEMPTS:=3}" "${SANDBOX:=systemd}" "${BOARD_LED:=auto}"
@@ -54,7 +54,7 @@ frozen_names() {
   SECRETS=/etc/purser/sirlar
   INCOMING=/var/lib/purser-gelen
   RSYNC_USER=purser-rsync VERIFY_USER=purser-dogrula
-  NFT_TABLE=purser NFT_NOTIFY_SET=bildirim
+  NFT_TABLE=purser
   ST_LAST_PUBLISHED=$STATE/son-yayin
   ST_LAST_SOUND=$STATE/son-saglam
   ST_PENDING_ACK=$STATE/bekleyen-ack        # "<id> <verdict>"

@@ -1,15 +1,15 @@
-# NOQ Purser box configuration (/etc/purser/purser.conf). No secrets here: keys and the
-# notification address live in /etc/purser/sirlar and /etc/purser/ssh. After editing run
-# "purser apply-config" (firewall, chrony, timer). The file is sourced: keys an older release
-# wrote and this one no longer uses are ignored.
+# NOQ Purser box configuration (/etc/purser/purser.conf). No secrets here: keys live in
+# /etc/purser/sirlar and /etc/purser/ssh. After editing run "purser apply-config" (firewall,
+# chrony, timer). The file is sourced: keys an older release wrote and this one no longer uses
+# are ignored.
 
-# --- server gate ---
-SERVER="192.0.2.10"           # IPv4 address of the protected server's gate
-SERVER_PORT="22"
+# --- server gate: written by pairing ("purser pair" on the server, QR or line on the box page) ---
+SERVER=""                     # IPv4 address of the protected server's gate
+SERVER_PORT="2222"
 SERVER_USER="purser"
-# Sources inside each generation: type:directory[:prune days]
+# Sources inside each generation, sent by the server at pairing: type:directory[:prune days]
 #   type: pgbackrest | borg | restic | dir     prune days: "any" or ISO weekdays "7" / "6,7"
-KINDS="pgbackrest:pgbackrest"
+KINDS=""
 
 # --- window ---
 NIGHT_AT="05:15"              # first question to the server
@@ -35,19 +35,19 @@ LUKS_UUID=""                  # set by setup
 MNT="/srv/purser"
 STATE="/var/lib/purser"
 
-# --- notifications and language ---
+# --- language (alarms travel to the server as notes; no notification service) ---
 LANG_UI="en"                  # en | tr
-NOTIFY_KIND="ntfy"            # ntfy | webhook
-# NOTIFY_CA=""                # CA bundle for a self-hosted notification server with a private CA
 
-# --- network and time ---
-DNS_SERVERS="1.1.1.1 9.9.9.9"
-NTP_SERVERS=""                # e.g. the router: "192.0.2.1"
-NTP_POOL="pool.ntp.org"
+# --- network and time: the box never goes to the internet ---
+DNS_SERVERS=""                # empty: no DNS at all (the box only uses addresses)
+NTP_SERVERS="gateway"         # "gateway" = the local router; or addresses, e.g. "192.0.2.1"
+NTP_POOL=""                   # a public pool only if you want one (needs DNS and internet)
 CLOCK_JUMP_MAX="600"
-MAINT_SSH_FROM=""             # empty = no SSH server at all; an address enables key-only SSH from it
 
 # --- hardware (board + USB-SATA cable + disk; see docs/hardware.md) ---
 BOARD_LED="auto"              # auto | none | a name under /sys/class/leds (e.g. "green:status")
+LIGHT_KIND="rgbw"             # the 8-LED stick: rgbw (SK6812) | rgb (WS2812B)
+LIGHT_BRIGHTNESS="0.35"       # 0.02 .. 1
+MAINT_GPIO="300b000.pinctrl:75"   # maintenance switch: pin controller label : line (PC11, header pin 12)
 SERIAL_TTY="ttyS0"            # the debug UART the restricted console runs on
 # DISK_WAIT="60"              # seconds to wait for the disk (and again after a USB reset)

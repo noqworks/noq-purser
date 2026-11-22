@@ -1,17 +1,26 @@
 #!/bin/bash
-# NOQ Purser: let one box in. Re-runnable; the previous box key and address are replaced.
-#   purser-admit <box ipv4> '<ssh-ed25519 public key>'
-#   purser-admit --revoke          remove the key, stop the gate, remove the firewall rule
+# NOQ Purser: which boxes may use the gate. One line per box in /etc/purser/boxes:
+#   <box id> <box ipv4> ssh-ed25519 <key>
+# From that list (and, while "purser pair" waits, the local subnet and its one-time key) this
+# renders the gate's authorized_keys, its sshd_config, the kernel address filter of the unit and
+# the host firewall rule, then reloads the gate. Called by "purser pair" and "purser unpair".
+#   purser-admit render              apply the list as it is
+#   purser-admit add <id> <ip> <key> add or replace one box, then render
+#   purser-admit remove <id>         remove one box, then render
+#   purser-admit --revoke            remove every box, stop the gate, remove the firewall rules
 set -euo pipefail
 umask 022
 GATE_CONF=/etc/purser/gate.conf
+BOXES=/etc/purser/boxes
+PAIR_STATE=/run/purser-pair
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
-[ -r "$GATE_CONF" ] || { echo "$GATE_CONF missing: run source/install.sh first" >&2; exit 1; }
+[ -r "$GATE_CONF" ] || { echo "$GATE_CONF missing: run \"purser install\" first" >&2; exit 1; }
 # shellcheck source=/dev/null
 . "$GATE_CONF"
 : "${LISTEN_ADDR:?}" "${PORT:?}" "${GATE_USER:?}" "${PREFIX:?}" "${SHARE:?}"
 AK=/etc/purser/ssh/authorized_keys
 COMMENT="NOQ Purser box"
+touch "$BOXES"; chmod 0644 "$BOXES"
 
 fw_kind() {
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then echo ufw
@@ -19,56 +28,80 @@ fw_kind() {
   elif command -v nft >/dev/null 2>&1 && [ -n "$(nft list ruleset 2>/dev/null | head -1)" ]; then echo nftables
   else echo none; fi
 }
-fw_remove() {
+fw_clear() {
   local n old
   case $(fw_kind) in
     ufw) while n=$(ufw status numbered | sed -n "/$PORT\/tcp.*$COMMENT/{s/^\[ *\([0-9]*\)\].*/\1/p;q}") && [ -n "$n" ]; do
            ufw --force delete "$n" >/dev/null; done ;;
     firewalld)
-      old=$(sed -n 's/^BOX_IP=//p' /etc/purser/gate.state 2>/dev/null || true)
-      [ -n "$old" ] && firewall-cmd -q --permanent --remove-rich-rule="rule family=ipv4 source address=$old port port=$PORT protocol=tcp accept" 2>/dev/null || true
+      # shellcheck disable=SC2013  # one address per line, no spaces
+      for old in $(cat /etc/purser/gate.fw 2>/dev/null); do
+        firewall-cmd -q --permanent --remove-rich-rule="rule family=ipv4 source address=$old port port=$PORT protocol=tcp accept" 2>/dev/null || true
+      done
       firewall-cmd -q --reload || true ;;
   esac
+  : > /etc/purser/gate.fw
 }
-fw_add() {   # fw_add <ip>
+fw_allow() {   # fw_allow <ip or cidr>
+  echo "$1" >> /etc/purser/gate.fw
   case $(fw_kind) in
-    ufw) ufw allow from "$1" to "$LISTEN_ADDR" port "$PORT" proto tcp comment "$COMMENT" >/dev/null; echo "firewall: ufw rule added" ;;
+    ufw) ufw allow from "$1" to "$LISTEN_ADDR" port "$PORT" proto tcp comment "$COMMENT" >/dev/null ;;
     firewalld) firewall-cmd -q --permanent --add-rich-rule="rule family=ipv4 source address=$1 port port=$PORT protocol=tcp accept"
-               firewall-cmd -q --reload; echo "firewall: firewalld rich rule added" ;;
-    nftables) echo "firewall: nftables ruleset found; add this to your input chain yourself:"
-              echo "    ip saddr $1 ip daddr $LISTEN_ADDR tcp dport $PORT accept" ;;
-    *) echo "firewall: none detected. If you add one, allow only: tcp $1 -> $LISTEN_ADDR:$PORT" ;;
+               firewall-cmd -q --reload ;;
+    nftables) echo "firewall: nftables ruleset found; allow in your input chain: ip saddr $1 ip daddr $LISTEN_ADDR tcp dport $PORT accept" ;;
   esac
 }
 
-if [ "${1:-}" = --revoke ]; then
-  : > "$AK"
-  systemctl disable --now purser-sshd.service >/dev/null 2>&1 || true
-  fw_remove; rm -f /etc/purser/gate.state /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf
-  systemctl daemon-reload; echo "gate closed"; exit 0
-fi
+render() {
+  local id ip kt key allow="" froms=() kex pair_cidr="" pair_key=""
+  if [ -s "$PAIR_STATE/cidr" ] && [ -s "$PAIR_STATE/key.pub" ]; then
+    pair_cidr=$(cat "$PAIR_STATE/cidr"); pair_key=$(cut -d' ' -f1,2 "$PAIR_STATE/key.pub")
+  fi
+  : > "$AK.new"
+  while read -r id ip kt key; do
+    [ -n "${id:-}" ] || continue
+    printf 'from="%s",restrict,command="%s/sbin/purser-gate %s" %s %s %s\n' "$ip" "$PREFIX" "$id" "$kt" "$key" "$id" >> "$AK.new"
+    allow+=" $GATE_USER@$ip"; froms+=("$ip")
+  done < "$BOXES"
+  if [ -n "$pair_cidr" ]; then
+    printf 'from="%s",restrict,command="%s/sbin/purser-gate --pair" %s pairing\n' "$pair_cidr" "$PREFIX" "$pair_key" >> "$AK.new"
+    allow+=" $GATE_USER@$pair_cidr"; froms+=("$pair_cidr")
+  fi
+  chmod 0644 "$AK.new"; mv -f "$AK.new" "$AK"
+  if [ ${#froms[@]} -eq 0 ]; then
+    systemctl disable --now purser-sshd.service >/dev/null 2>&1 || true
+    fw_clear; rm -f /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf; systemctl daemon-reload
+    echo "gate closed (no boxes)"; return 0
+  fi
+  kex=$(ssh -Q kex | grep -xE 'mlkem768x25519-sha256|sntrup761x25519-sha512(@openssh.com)?|curve25519-sha256' | paste -sd, -)
+  sed -e "s|@LISTEN@|$LISTEN_ADDR|; s|@PORT@|$PORT|; s|@ALLOW@|${allow# }|; s|@PREFIX@|$PREFIX|; s|@KEX@|$kex|" \
+    "$SHARE/sshd_config.in" > /etc/purser/sshd_config.new
+  install -d -m 0755 /run/sshd
+  /usr/sbin/sshd -t -f /etc/purser/sshd_config.new
+  mv -f /etc/purser/sshd_config.new /etc/purser/sshd_config
+  install -d /etc/systemd/system/purser-sshd.service.d
+  { echo "[Service]"; for ip in "${froms[@]}"; do echo "IPAddressAllow=$ip"; done; } > /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf
+  fw_clear; for ip in "${froms[@]}"; do fw_allow "$ip"; done
+  systemctl daemon-reload
+  if systemctl is-active --quiet purser-sshd; then systemctl reload purser-sshd; else systemctl enable --now purser-sshd >/dev/null; fi
+}
 
-ip=${1:?box IPv4 address}; key=${2:?box public key}
-[[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || { echo "not an IPv4 address: $ip" >&2; exit 1; }
-for o in "${BASH_REMATCH[@]:1}"; do [ "$o" -le 255 ] || { echo "not an IPv4 address: $ip" >&2; exit 1; }; done
-[[ $key =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,2}(\ [A-Za-z0-9@._-]+)?$ ]] || { echo "an ssh-ed25519 public key is expected" >&2; exit 1; }
-id "$GATE_USER" >/dev/null
-
-# key exchange: the strongest algorithms this OpenSSH knows
-kex=$(ssh -Q kex | grep -xE 'mlkem768x25519-sha256|sntrup761x25519-sha512(@openssh.com)?|curve25519-sha256' | paste -sd, -)
-printf 'from="%s",restrict,command="%s/sbin/purser-gate" %s\n' "$ip" "$PREFIX" "$key" > "$AK.new"
-chmod 0644 "$AK.new"; mv -f "$AK.new" "$AK"
-sed -e "s|@LISTEN@|$LISTEN_ADDR|; s|@PORT@|$PORT|; s|@USER@|$GATE_USER|; s|@BOX_IP@|$ip|; s|@PREFIX@|$PREFIX|; s|@KEX@|$kex|" \
-  "$SHARE/sshd_config.in" > /etc/purser/sshd_config.new
-install -d -m 0755 /run/sshd
-/usr/sbin/sshd -t -f /etc/purser/sshd_config.new
-mv -f /etc/purser/sshd_config.new /etc/purser/sshd_config
-install -d /etc/systemd/system/purser-sshd.service.d
-printf '[Service]\nIPAddressAllow=%s/32\n' "$ip" > /etc/systemd/system/purser-sshd.service.d/10-box-ip.conf
-fw_remove; fw_add "$ip"
-echo "BOX_IP=$ip" > /etc/purser/gate.state
-systemctl daemon-reload
-if systemctl is-active --quiet purser-sshd; then systemctl restart purser-sshd; else systemctl enable --now purser-sshd >/dev/null; fi
-echo "gate open: $LISTEN_ADDR:$PORT, only from $ip"
-echo "gate host key (compare with what the box shows):"
-ssh-keygen -lf /etc/purser/ssh/ssh_host_ed25519_key.pub
+case ${1:-render} in
+  render) render ;;
+  add)
+    id=${2:?box id} ip=${3:?box ipv4} key=${4:?public key}
+    [[ $id =~ ^[A-HJ-NP-Z2-9]{4}$ ]] || { echo "not a box id: $id" >&2; exit 1; }
+    [[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || { echo "not an IPv4 address: $ip" >&2; exit 1; }
+    for o in "${BASH_REMATCH[@]:1}"; do [ "$o" -le 255 ] || { echo "not an IPv4 address: $ip" >&2; exit 1; }; done
+    [[ $key =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,2}$ ]] || { echo "an ssh-ed25519 public key is expected" >&2; exit 1; }
+    { grep -v "^$id " "$BOXES" || true; printf '%s %s %s\n' "$id" "$ip" "$key"; } > "$BOXES.new"; mv -f "$BOXES.new" "$BOXES"
+    render; echo "box $id admitted from $ip" ;;
+  remove)
+    id=${2:?box id}
+    grep -q "^$id " "$BOXES" || { echo "no box $id" >&2; exit 1; }
+    grep -v "^$id " "$BOXES" > "$BOXES.new" || true; mv -f "$BOXES.new" "$BOXES"
+    render; echo "box $id removed" ;;
+  --revoke)
+    : > "$BOXES"; rm -rf "$PAIR_STATE"; render ;;
+  *) echo "usage: purser-admit render | add <id> <ip> <key> | remove <id> | --revoke" >&2; exit 2 ;;
+esac

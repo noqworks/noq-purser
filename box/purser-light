@@ -1,0 +1,174 @@
+#!/usr/bin/python3 -I
+"""NOQ Purser: the light stick (8 addressable LEDs on SPI1 MOSI, header pin 19).
+
+One colour, one meaning (MIMARI §8). The core writes the state it decided to RUN_DIR/light
+("ready", "unpaired", "pulling [percent]", "checking", "done", "warning", "fault", "suspect", "off");
+the maintenance-switch watcher writes RUN_DIR/maint while the switch is on; the operation-code lock
+is read from the state area. This program only draws:
+
+  priority: suspect (red) > fault (orange) > code locked (red/white) > warning (yellow)
+            > pulling (blue) / checking (cyan) > done (green) > ready (white)
+  maintenance on: the state alternates with purple once a second.
+
+The SPI controller clocks 3.2 MHz; every LED bit becomes four SPI bits (1000 = 0, 1100 = 1), which
+fits both WS2812B and SK6812 timing. Distribution Python only, no extra modules.
+"""
+import fcntl, math, os, shlex, signal, struct, sys, time
+
+RUN_DIR = os.environ.get("RUN_DIR", "/run/purser")
+STATE = os.environ.get("STATE", "/var/lib/purser")
+CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
+DEVICE = os.environ.get("LIGHT_DEVICE", "/dev/spidev1.0")
+COUNT = 8
+HZ = 3_200_000
+FPS = 30
+SPI_IOC_WR_MODE = 0x40016B01
+SPI_IOC_WR_MAX_SPEED_HZ = 0x40046B04
+
+
+def conf(key, default):
+    """A key of the sourced purser.conf (quotes and trailing # comments allowed)."""
+    try:
+        for line in open(CONF, encoding="utf-8"):
+            line = line.strip()
+            if line.startswith(key + "="):
+                parts = shlex.split(line.split("=", 1)[1], comments=True)
+                return (parts[0] if parts else "") or default
+    except (OSError, ValueError):
+        pass
+    return default
+
+
+KIND = conf("LIGHT_KIND", "rgbw")            # rgbw (SK6812) or rgb (WS2812B)
+BRIGHT = max(0.02, min(1.0, float(conf("LIGHT_BRIGHTNESS", "0.35"))))
+
+# colour = (r, g, b, w); on an RGB stick white is drawn with r = g = b
+COLOURS = {
+    "white": (0, 0, 0, 255), "blue": (20, 70, 255, 0), "cyan": (0, 200, 210, 0), "green": (20, 220, 60, 0),
+    "yellow": (255, 170, 0, 0), "orange": (255, 70, 0, 0), "red": (255, 0, 0, 0), "purple": (150, 40, 255, 0),
+    "dark": (0, 0, 0, 0),
+}
+
+
+def encode(pixels):
+    table = {0: 0b1000, 1: 0b1100}
+    out = bytearray(48)                      # reset / settle before
+    for r, g, b, w in pixels:
+        if KIND == "rgb":
+            if w:
+                r, g, b = (max(r, w), max(g, w), max(b, w))
+            channels = (g, r, b)
+        else:
+            channels = (g, r, b, w)
+        for c in channels:
+            c = int(c * BRIGHT + 0.5)
+            for half in (c >> 4, c & 15):    # four LED bits -> two SPI bytes
+                v = 0
+                for i in range(3, -1, -1):
+                    v = (v << 4) | table[(half >> i) & 1]
+                out += v.to_bytes(2, "big")
+    out += bytearray(48)                     # latch (> 80 us low)
+    return bytes(out)
+
+
+def scale(col, k):
+    return tuple(int(x * k) for x in col)
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def code_locked():
+    until = 0
+    for line in read(os.path.join(STATE, "code.lock")).splitlines():
+        if line.startswith("until="):
+            try:
+                until = int(line[6:])
+            except ValueError:
+                pass
+    return until > time.time()
+
+
+def frame(state, arg, t):
+    """Eight colours for one moment of a state."""
+    if state == "suspect":                   # red, slow breath — never used for anything else
+        return [scale(COLOURS["red"], 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * 2 * math.pi / 3.6)))] * COUNT
+    if state == "fault":
+        return [COLOURS["orange"]] * COUNT
+    if state == "locked":                    # red / white alternating halves of a second
+        on = int(t * 2) % 2 == 0
+        return [COLOURS["red"] if (i % 2 == 0) == on else COLOURS["white"] for i in range(COUNT)]
+    if state == "warning":
+        return [COLOURS["yellow"]] * COUNT
+    if state == "pulling":                   # blue bar; filled to the percentage, or a running fill
+        try:
+            pct = max(0, min(100, int(arg)))
+            lit = max(1, round(pct * COUNT / 100))
+            head = int(t * 4) % 2 == 0
+            return [COLOURS["blue"] if i < lit - 1 or (i == lit - 1 and head) else scale(COLOURS["blue"], 0.08) for i in range(COUNT)]
+        except ValueError:
+            pos = (t * 4) % (COUNT + 3)
+            return [COLOURS["blue"] if i < pos else scale(COLOURS["blue"], 0.08) for i in range(COUNT)]
+    if state == "checking":                  # cyan breath
+        return [scale(COLOURS["cyan"], 0.3 + 0.7 * (0.5 - 0.5 * math.cos(t * 2 * math.pi / 2.2)))] * COUNT
+    if state == "done":
+        return [COLOURS["green"]] * COUNT
+    if state == "unpaired":                  # white, a dot at each end
+        return [COLOURS["white"] if i in (0, COUNT - 1) else COLOURS["dark"] for i in range(COUNT)]
+    if state == "ready":
+        return [scale(COLOURS["white"], 0.6)] * COUNT
+    if state == "test":                      # every colour in turn, for the bench
+        names = ["white", "blue", "cyan", "green", "yellow", "orange", "red", "purple"]
+        return [COLOURS[names[int(t) % len(names)]]] * COUNT
+    return [COLOURS["dark"]] * COUNT
+
+
+def main():
+    fd = os.open(DEVICE, os.O_WRONLY)
+    fcntl.ioctl(fd, SPI_IOC_WR_MODE, struct.pack("B", 0))
+    fcntl.ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, struct.pack("I", HZ))
+    stop = []
+    signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+    signal.signal(signal.SIGINT, lambda *_: stop.append(1))
+    last = None
+    t0 = time.monotonic()
+    checked = 0.0
+    state, arg, maint, locked, preview = "off", "", False, False, None
+    while not stop:
+        t = time.monotonic() - t0
+        if t - checked >= 0.25:              # files are tiny; four looks a second
+            checked = t
+            parts = (read(os.path.join(RUN_DIR, "light"), "off").split() or ["off"])
+            state, arg = parts[0], (parts[1] if len(parts) > 1 else "")
+            maint = os.path.exists(os.path.join(RUN_DIR, "maint"))
+            locked = code_locked()
+            # the page can show one state on the real stick for a few seconds (light cards)
+            pv = read(os.path.join(RUN_DIR, "light-preview")).split()
+            preview = pv[0] if len(pv) == 2 and pv[1].isdigit() and int(pv[1]) > time.time() else None
+        shown = state
+        if locked and state not in ("suspect", "fault", "test"):
+            shown = "locked"
+        if preview:
+            shown = preview
+        if shown == "maint":                 # preview of the maintenance pattern alone
+            px = [COLOURS["purple"]] * COUNT if int(t) % 2 == 1 else frame("done", "", t)
+        else:
+            px = frame(shown, arg, t)
+        if maint and not preview and shown != "test" and int(t) % 2 == 1:
+            px = [COLOURS["purple"]] * COUNT
+        data = encode(px)
+        if data != last:
+            os.write(fd, data)
+            last = data
+        time.sleep(1 / FPS)
+    os.write(fd, encode([COLOURS["dark"]] * COUNT))
+    os.close(fd)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

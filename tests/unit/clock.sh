@@ -48,11 +48,12 @@ fresh
 first_night 2026-03-01T03-10Z
 eq "trusted night: taken" tamam "$(last)"
 night_activity 20260302 1; publish_generation 2026-03-02T03-10Z
-c0=$(cat /srv/server/ack/.contact); m0=$(stat -c %Y /srv/server/ack/.contact); o=$(opens)
+c0=$(cat /srv/server/ack/.contact); o=$(opens)
 echo unsynced > /run/sim/chrony; clear_notes; sleep 1
 run_box untrusted
 eq "untrusted clock: result" clock_untrusted "$(last)"
-eq "the server was not contacted" "$c0 $m0" "$(cat /srv/server/ack/.contact) $(stat -c %Y /srv/server/ack/.contact)"
+cur=$(cat /srv/server/ack/.contact); case $cur in "$c0"|*" note "*) r=ok ;; *) r=$cur ;; esac
+eq "the server was asked for nothing (only the alarm note went out)" ok "$r"
 eq "LUKS never opened" "$o" "$(opens)"
 ok "disk locked" locked
 ok "notified: no generation, clock not trusted" notified "the clock cannot be trusted (not synchronised)"
@@ -70,4 +71,31 @@ clear_notes; run_box early
 eq "clock earlier than the image: nothing taken" clock_untrusted "$(last)"
 ok "notified: clock earlier than the image" notified "earlier than the build date"
 unconf IMAGE_RELEASE
+
+# battery clock (DS3231): simulated sysfs, never written in the lab (/dev/rtc9 does not exist)
+R9=/run/sim/sys/class/rtc/rtc9; IMAGE_RELEASE=/run/purser-test/image-release; printf "BUILD_DATE=%s\n" "$(( $(date +%s) - 30 * 86400 ))" > "$IMAGE_RELEASE"
+rtc_sim() { mkdir -p "$R9"; echo "rtc-ds1307 3-0068" > "$R9/name"; echo "$1" > "$R9/since_epoch"; }
+fresh; rm -f "$STATE/rtc"; echo unsynced > /run/sim/chrony
+rtc_sim "$(date +%s)"
+eq "battery clock present but never set: not trusted" unsynced "$(clock_state)"
+eq "clock source without network time or a set battery clock: none" none "$(clock_source)"
+printf 'at=1\nsource=phone\n' > "$STATE/rtc"
+eq "battery clock set: trusted without network time" ok "$(clock_state)"
+eq "clock source: battery clock" rtc "$(clock_source)"
+fresh; rtc_sim "$(( $(date +%s) - 3600 ))"
+eq "system clock an hour away from the battery clock: disagree" disagree "$(clock_state)"
+eq "the difference is recorded for the alarm" 3600 "$(( $(cat "$RUN_DIR/clock.diff") / 60 * 60 ))"
+fresh; rm -f "$R9/since_epoch"
+eq "battery clock unreadable (oscillator stopped): not trusted" unsynced "$(clock_state)"
+fresh; rtc_sim 1000000000
+eq "battery clock before the image build: not trusted" unsynced "$(clock_state)"
+rm -f /run/sim/chrony; fresh; rtc_sim "$(( $(date +%s) - 3600 ))"
+eq "network time and a set battery clock an hour apart: disagree" disagree "$(clock_state)"
+fresh; rtc_sim "$(date +%s)"
+eq "network time and the battery clock agree: ok" ok "$(clock_state)"
+eq "clock source with network time: ntp" ntp "$(clock_source)"
+ok "rtc-set refuses while network time is synchronised" not cmd_rtc_set "$(date +%s)"
+rm -rf "$R9" "$STATE/rtc"; fresh
+ok "rtc-set refuses without a battery clock" not cmd_rtc_set "$(date +%s)"
+eq "no battery clock: network time as before" ok "$(clock_state)"
 done_testing

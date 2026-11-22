@@ -1,0 +1,13 @@
+[Unit]
+Description=NOQ Purser maintenance switch (local access only while the switch is on)
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/sbin/purser-maint
+ExecStopPost=/usr/local/sbin/purser-maint off
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

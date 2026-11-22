@@ -28,7 +28,7 @@ o=$(opens); clear_notes; run_box hung-always
 eq "bridge hung: result" disk_error "$(last)"
 eq "bridge hung: LUKS never opened" "$o" "$(opens)"
 ok "bridge hung: alarm" notified "not visible or not readable on USB, also after one USB reset"
-eq "bridge hung: urgent" urgent "$(last_header Priority)"
+eq "bridge hung: urgent" urgent "$(last_prio)"
 eq "exactly one reset attempt" 1 "$(grep -c 're-authorized\|unbound and bound' "$LOGDIR/run-hung-always.log")"
 ln -sfn "$(cat /run/sim/loopdev)" /run/sim/by-uuid/test-0001; rm -f /run/sim/bridge-hung
 run_box back

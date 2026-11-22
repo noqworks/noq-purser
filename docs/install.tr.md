@@ -2,115 +2,78 @@
 
 [English](install.md)
 
-Üç adım: sunucu tarafı, kutu imajı, ilk açılış. Aşağıdaki adresler örnektir (`192.0.2.10` sunucu,
-`192.0.2.15` kutu).
+Önizleme 1.0.0. İndirmeler: <https://open.noq.works/tr/projeler/purser/#indir> (GitHub sürümünde de
+var). Her dosya SHA-256 değeriyle `SHA256SUMS` içinde.
 
-## 1. Sunucu tarafı
+## Özet
 
-Korunan sunucuda, root olarak (Debian 12/13, Ubuntu 24.04/26.04; Debian 13, Ubuntu 24.04 ve 26.04
-üzerinde sınandı):
+1. **Sunucuda: purser install.** Ayrı bir kullanıcı ve yalnız kutunun kullanacağı dar bir kapı kurar. pgBackRest, Borg ve restic ayarlarına bakıp bulduğu depoları önerir. Depo şifresizse açıkça uyarır.
+2. **Bilgisayarda: purser-setup.** purser-setup <imaj>.img.xz /dev/diskN. Önce imajın sağlamasını ve kartın çıkarılabilir bir disk olduğunu denetler. Kutunun dilini, saat dilimini, ağını (varsayılan DHCP) ve saat sunucusunu sorar. Diskin silinip silinmeyeceğini sorar; silinecekse yeni kutu kimliğini yazarak onaylarsın. Kartı yazmak için aygıt adını bir kez daha yazarsın.
+3. **Kâğıda yaz.** Kart yazılınca iki şey bir kez gösterilir: 12 haneli işlem kodu ve disk silinecekse kurtarma parolası. Kâğıda yazıp "yazdım" diyene kadar kurulum ilerlemez. Bilgisayarda ve sunucuda kopyası kalmaz; fotoğrafını çekme.
+4. **Kartı tak, güç ver.** Kart, disk, Ethernet, en son güç. İlk açılış gözetimsizdir: ayarları karttan alır, kurulum bölümünü siler, diski hazırlar (camgöbeği nefes). Bitince ışığın iki ucunda nokta yanar: eşleşmeyi bekliyor.
+5. **Sunucuda: purser pair.** Terminalde bir QR kod ve tek satırlık bir belirteç çıkar; on dakika geçerli, tek kullanımlıktır.
+6. **Bakım anahtarını aç, QR'ı okut.** Işık mor yanıp söner. Telefonla https://<kimlik>.local adresine gir; kutunun kendi imzalı sertifikası için tarayıcının uyarısını bir kez kabul et. Eşleş'e dokun, QR'ı okut. Saat modülü varsa telefonun saati bu sırada bir kez modüle yazılır.
+7. **Anahtarı kapat.** Sayfa, SSH ve kutunun ağdaki görünürlüğü kapanır. Kutu o gece ilk yedeği çeker; sabah ışık yeşilse tamamdır.
 
-```sh
-git clone <bu depo> noq-purser && cd noq-purser
-source/install.sh --listen 192.0.2.10 --port 2222 --base /srv/purser --timer 04:30
+## 1. Sunucu
+
+systemd'li Debian 12/13 ya da Ubuntu 24.04+.
+
+```
+tar xzf noq-purser-server-1.0.0.tar.gz && cd noq-purser-server-1.0.0
+sudo ./install.sh --listen 192.168.1.10        # sunucunun, kutunun ağındaki adresi
+sudo nano /etc/purser/source.conf               # SOURCES=("pgbackrest:/var/lib/pgbackrest" "borg:/srv/borg" ...)
+sudo purser status
 ```
 
-Eksik olanı kurar (`rsync`, `openssh-server`, `rrsync` için `python3`), kapı kullanıcısını açar
-(parolasız), `purser-source`, `purser-gate` ve `purser-admit`'i `/usr/local/sbin` altına koyar,
-`/etc/purser/source.conf`'u (yalnız yoksa), kapının kendi ana bilgisayar anahtarını ve
-`purser-source.timer` (gecelik), `purser-source-watch.timer` (saatlik) ve `purser-sshd.service`
-(yalnız kutu için ayrı bir sshd; ana sshd'ye dokunulmaz) birimlerini yazar. İstenildiği zaman
-yeniden çalıştırılabilir; `--uninstall` programları ve birimleri kaldırır, `--base` altındaki
-veriyi bırakır, `/etc/purser`'ı kenara taşır.
+`install.sh` kapı kullanıcısını, kapıya ait ayrı bir sshd'yi (tek port, varsayılan 2222, yalnız
+kabul edilen kutuların adresleri), gece çalışan `purser-source` işini (`--timer 04:30`) ve alarm
+yolunu kurar. Yeniden çalıştırılabilir. Kutudan gelen alarmlar `note <olay>` olarak gelir ve
+`source.conf` içindeki `ALERT_CMD` ile yükseltilir (varsayılan: sistem günlüğü). Seçenekler:
+`--port`, `--base`, `--user`, `--timer`, `--prefix`; `--uninstall` programları ve birimleri
+kaldırır, veriyi bırakır.
 
-Sonra `/etc/purser/source.conf`'u düzenleyin. `source/examples/` altındaki örnekler (pgBackRest,
-borg, restic, düz dizin) kaynakları, beklenen birimleri, tazelik ve doğrulama komutlarını
-gösterir. Denetleyip zamanlayıcıyı açın:
+## 2. Kart (bilgisayarında)
 
-```sh
-purser-source check
-systemctl enable --now purser-source.timer
+macOS ya da Linux. Terminal'de:
+
+```
+bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)
 ```
 
-Yedeklerin içindeki adlar `A-Z a-z 0-9 . _ / + -` kullanmalı; başka karakterli adlar bir borg ya
-da restic deposunun içine girer. Kaynakları kendi araçlarıyla şifreleyin (borg/restic repokey,
-pgBackRest `repo-cipher-type`): kutu disk anahtarını kendi üzerinde tutar.
+ya da `noq-purser-setup-1.0.0.tar.gz` dosyasını aç ve `bash purser-setup` çalıştır (Mac'te
+`purser-setup.command` dosyasına çift tıklanabilir; ilk kez sağ tık > Aç, imzalı bir uygulama
+değil, bir betik).
 
-Kutu sonra, anahtarını gösterdiğinde kabul edilir (3. adım):
-
-```sh
-purser-admit 192.0.2.15 'ssh-ed25519 AAAA… purser@noq-purser'
-```
-
-Anahtarı `from="192.0.2.15",restrict,command="…/purser-gate"` ile yazar, kapının sshd
-yapılandırmasını üretir, kapı birimini kutunun adresiyle sınırlar ve ufw ya da firewalld kuralı
-ekler (yalnız nftables varsa eklenecek kuralı yazar). Kapının ana bilgisayar anahtarının parmak
-izini yazar; kutu bunu karşılaştırmanızı ister. `purser-admit --revoke` kapıyı kapatır.
-
-## 2. Kutu imajı
-
-Docker'lı herhangi bir Linux makinede (ana sisteme hiçbir şey kurulmaz; arm64 programları üretim
-kapsayıcısında proot + qemu ile çalışır, ana sistemin çekirdeğine hiçbir şey kaydedilmez):
-
-```sh
-image/build-image.sh --cache ./build-cache --out ./out [--setup-conf benim-setup.conf]
-```
-
-- Taban, Orange Pi Zero 3 için sabitlenmiş bir Armbian sürümüdür (Debian 12); sha256'sı betikte
-  yazılıdır ve dosya kullanılmadan önce denetlenir.
-- Kutunun gereksindiği bütün paketler imaja üretim sırasında kurulur. Çalışan kutu hiçbir zaman
-  kod ya da paket çekmez: güvenlik duvarında buna kural yoktur, apt zamanlayıcıları maskelidir.
-- İmajda: SSH sunucusu maskeli, root parolası kilitli (`*`), seri konsolda oturum açma yok (yerine kısıtlı
-  `purser-console` çalışır), Wi-Fi ve Bluetooth kapalı, timesyncd yerine chrony, boş makine
-  kimliği, SSH ana bilgisayar anahtarı yok.
-- Sonuç: `out/noq-purser-<sürüm>-orangepizero3-<tarih>.img.xz` ve `.sha256` dosyası.
-- İlk üretim uzun sürer (paket aşaması); sonrakiler onu yeniden kullanır (`--rebuild-base` baştan
-  yapar).
-
-**İsteğe bağlı gözetimsiz ilk açılış.** `image/setup.conf.example`'ı kopyalayıp doldurun ve
-`--setup-conf` ile verin. Kutu onu bir kez okur ve siler. Kapıyı (ana bilgisayar anahtarını yalnız
-`SERVER_HOSTKEY_FP` ile eşleşirse kabul ederek), kaynakları, pencereyi, bildirim kanalını, dili,
-sabit adresi (`NET_ADDRESS`, `NET_GATEWAY`; boşsa DHCP), DNS'i, NTP'yi ayarlayabilir ve taşınmış
-bir diski sahiplenebilir. **Yeni** disk her zaman seri konsolda hazırlanır, çünkü kurtarma
-parolası tam bir kez gösterilir.
-
-**Kartı yazın** (Linux ya da macOS):
-
-```sh
-image/flash.sh out/noq-purser-….img.xz /dev/sdX        # Linux; macOS: /dev/diskN (diskutil list)
-```
-
-İmajı `.sha256` dosyasıyla karşılaştırır; çalışan sistemin durduğu diski, bağlı sistem
-disklerini, çıkarılamaz diskleri ve 256 GB'tan büyük diskleri reddeder (`--force-size`); yazmadan
-önce aygıt adını geri yazmanızı ister.
+Araç imajı open.noq.works'ten önbelleğe indirir ve SHA-256 değerini denetler, çıkarılabilir
+diskleri (kartı) listeler ve sorar: dil, saat dilimi, ağ (DHCP ya da adres), saat sunucusu
+(`gateway` = modem) ve USB diskin silinip hazırlanıp hazırlanmayacağı (onay için yeni kutu
+kimliğini yazarsın). `flash.sh` ardından bütün, çıkarılabilir ve en çok 256 GB olmayan diski
+reddeder; aygıt adını bir kez daha yazarsın. Yazdıktan sonra işlem kodunu ve disk hazırlanacaksa
+kurtarma parolasını bir kez gösterir; kâğıda yaz ve onay sözcüğünü yaz. Ayarlar ve bu tek
+kullanımlık sırlar kartın küçük kurulum bölümüne (`PURSERSET`) gider; ilk açılış onları alır ve
+bölümü siler. Bilgisayarda hiçbir şey kalmaz. `~/.ssh/id_ed25519.pub` varsa bakım SSH'si için karta
+konur (`--no-ssh-key` ile konmaz). Elindeki bir imajla: `purser-setup <imaj.img.xz> <aygıt>`.
 
 ## 3. İlk açılış
 
-Kabloyu ve diski karta, Ethernet'i, hata ayıklama UART'ına USB-seri dönüştürücüyü (115200 baud)
-bağlayın, kartı takın, gücü verin. İlk açılış servisi kullanıcıları ve anahtarları üretir, varsa
-`setup.conf`'u uygular, güvenlik duvarını, chrony ve DNS ayarlarını uygular, öz sınamayı çalıştırır
-ve gece işinin gerektirdiği her şey varsa (kapının ana bilgisayar anahtarı, bildirim kanalı, disk)
-zamanlayıcıları açar. Yoksa seri konsolda `setup`'ı bekler; LED kalp atışı gösterir.
+Kart, USB disk, Ethernet, en son güç. İlk açılış gözetimsizdir: ayarlar karttan alınır, disk
+yalnız onayladığın işaretle silinip LUKS2 + btrfs olarak hazırlanır, öz sınama çalışır. Disk
+hazırlanırken çubuk camgöbeği nefes alır; iki ucunda nokta olan beyaz çubuk eşleşmeyi beklediğini
+gösterir. Saat kaynağı yoksa (modem NTP'si ya da pil saati) kutu yedek almaz; saat modülü için
+[hardware.tr.md](hardware.tr.md).
 
-Seri konsolda (`purser>` istemi) `setup` sorar: dil, kapı adresi ve portu, kaynaklar (`KINDS`),
-ilk soru saati, sorma aralığının sonu. Sonra:
+## 4. Eşleşme
 
-1. Sunucuda çalıştırılacak `purser-admit` satırını kutunun adresi ve anahtarıyla yazar.
-2. Kapının ana bilgisayar anahtarının parmak izini gösterir: `purser-admit`'in yazdığıyla
-   karşılaştırın.
-3. Bildirim kanalı: bir ntfy sunucusu (rastgele bir konu üretilir); ntfy uygulamasında abone
-   olun; deneme iletisi gider.
-4. Disk: yapılandırılmış disk yoksa **yeni** disk hazırlamayı önerir: tam bir USB disk takılı
-   olmalı; `ERASE` yazın. LUKS2 kurar (ölçüme göre AES-XTS ya da Adiantum), rastgele anahtar
-   dosyası ve **bir kez gösterilen kurtarma parolası** ile (kâğıda yazın, son dört karakterini geri
-   yazın); LUKS başlık yedeğini alır (`/etc/purser/sirlar/luks-baslik.img`; kâğıt paket için USB
-   belleğe kopyalayın); btrfs'i ve düzeni kurar.
-5. İşlem kodu: bir kez gösterilir; kâğıda yazın (kutunun üstüne değil), geri yazın.
-6. Öz sınama.
+```
+sudo purser pair                 # QR kod ve tek satır belirteç; 10 dakika, tek kullanımlık
+```
 
-Yeni disk sonra pencere tavanı olmadan ilk dolumu ister: `first-fill` (kod sorar; arka planda
-çalışır; `status` ile izleyin). İlk dolumdan sonra gece zamanlayıcısı açılır. `status` ve
-`selftest` ile denetleyin, `notify-test` ile deneme gönderin.
+Bakım anahtarını aç (çubuk mor yanıp söner). Telefonda `https://<kimlik>.local` adresini aç
+(kimlik kart etiketinde, örn. `k7rt.local`), kutunun kendi imzalı sertifikası için uyarıyı bir kez
+geç, Eşleş'e dokun ve kodu okut (ya da satırı yapıştır). Kutu sunucunun anahtar parmak izini
+denetler, sunucu kutunun anahtarını yalnız onun adresinden kabul eder; pil saati varsa telefonun
+saati ona yazılır. Anahtarı kapat: sayfa, SSH ve mDNS kapanır. Kutu ilk neslini o gece çeker.
 
 ## Yeni SD karta taşıma (güncelleme)
 

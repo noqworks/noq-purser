@@ -52,7 +52,9 @@ ons=$(opens)
 $P run > /run/purser-test/n-none.log 2>&1
 eq "no generation: result" no_generation "$(last)"
 eq "no generation: LUKS never opened" "$ons" "$(opens)"
-ok "no generation: notified" grep -q 'produced no generation' /run/purser-test/notify.log
+journalctl --sync 2>/dev/null || true
+ok "no generation: notified" bash -c "journalctl -q -t purser -o cat | grep -q 'produced no generation'"
+ok "no generation: reached the server" grep -q " no_generation$" /srv/server/ack/.notes
 
 # pending acknowledgement: the gate cannot write it, the next night sends it first
 id=2026-02-11T03-10Z; night_activity 20260211 3; publish_generation "$id"

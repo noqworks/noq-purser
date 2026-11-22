@@ -13,7 +13,7 @@ find /srv/src -mindepth 2 -type f -delete
 publish_generation 2026-03-03T03-10Z; clear_notes; run_box wipe
 eq "result" supheli "$(last)"
 ok "alarm names the mass deletion" notified "percent of the files were deleted"
-eq "alarm is urgent" urgent "$(last_header Priority)"
+eq "alarm is urgent" urgent "$(last_prio)"
 ok "the box told the server" grep -q '^supheli ' /srv/server/ack/2026-03-03T03-10Z
 src_init
 publish_generation 2026-03-04T03-10Z; run_box n4
