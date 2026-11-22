@@ -8,9 +8,13 @@ is read from the state area. This program only draws:
 
   priority: suspect (red) > fault (orange) > code locked (red/white) > warning (yellow)
             > pulling (blue) / checking (cyan) > done (green) > ready (white)
-  maintenance on: purple breathes in and out over the state (two-second cycle).
+  maintenance on: purple breathes slowly in and out over the state (six-second cycle).
   fault / warning with a cause: two LEDs pulse in the cause colour — disk 1-2 blue, server 3-4 cyan,
-  clock 5-6 white, verify 7-8 red. Every change fades (no hard steps).
+  clock 5-6 white, verify 7-8 red.
+
+Every change is a curve, never an edge: colours are blended the way the eye sees them, breathing is
+a plain sine, and the dim end — where one 8-bit step is a visible jump — gets two extra bits by
+dithering across the eight LEDs behind the diffuser (no temporal dithering: writes are kept few).
 
 The SPI controller clocks 3.2 MHz; every LED bit becomes four SPI bits (1000 = 0, 1100 = 1), which
 fits both WS2812B and SK6812 timing. Distribution Python only, no extra modules.
@@ -23,7 +27,10 @@ CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
 DEVICE = os.environ.get("LIGHT_DEVICE", "/dev/spidev1.1")
 COUNT = 8
 HZ = 3_200_000
-FPS = 30
+FPS = 25                                     # the picture is drawn this often (sent only when it changes)
+SUB = 1                                      # no temporal dithering: every extra write is a chance for a glitch (see below)
+DITHER_BELOW = 48                            # 8-bit levels under this get the two extra bits
+ORDER = (0, 2, 1, 3)                         # which of the four phases light up first
 SPI_IOC_WR_MODE = 0x40016B01
 SPI_IOC_WR_MAX_SPEED_HZ = 0x40046B04
 
@@ -52,37 +59,67 @@ COLOURS = {
 }
 
 
-def encode(pixels):
-    table = {0: 0b1000, 1: 0b1100}
+def _spi(byte):                              # one LED byte -> four SPI bytes
+    v = 0
+    for i in range(7, -1, -1):
+        v = (v << 4) | (0b1100 if (byte >> i) & 1 else 0b1000)
+    return v.to_bytes(4, "big")
+
+
+SPI = [_spi(b) for b in range(256)]
+
+
+def level(v, phase):
+    """A float 0..255 as an 8-bit level; in the dim range quarter steps are spread over four phases."""
+    if v >= DITHER_BELOW:
+        return min(255, int(v + 0.5))
+    q = int(v * 4 + 0.5)
+    return (q >> 2) + (1 if ORDER[phase & 3] < (q & 3) else 0)
+
+
+def encode(pixels, phase=0):
     out = bytearray(48)                      # reset / settle before
-    for r, g, b, w in pixels:
+    for n, (r, g, b, w) in enumerate(pixels):
         if KIND == "rgb":
             if w:
                 r, g, b = (max(r, w), max(g, w), max(b, w))
             channels = (g, r, b)
         else:
             channels = (g, r, b, w)
-        for c in channels:
-            c = int(c * BRIGHT + 0.5)
-            for half in (c >> 4, c & 15):    # four LED bits -> two SPI bytes
-                v = 0
-                for i in range(3, -1, -1):
-                    v = (v << 4) | table[(half >> i) & 1]
-                out += v.to_bytes(2, "big")
+        for m, c in enumerate(channels):     # neighbours and channels sit in different phases: the bar's sum stays level
+            out += SPI[level(c * BRIGHT, phase + n + 2 * m)]
     out += bytearray(48)                     # latch (> 80 us low)
     return bytes(out)
 
 
 def scale(col, k):
-    return tuple(int(x * k) for x in col)
+    return tuple(x * k for x in col)
+
+
+GAMMA = 2.2
 
 
 def mix(a, b, k):
-    return tuple(x + (y - x) * k for x, y in zip(a, b))
+    """Blend two colours the way the eye sees it (a linear PWM ramp looks like a snap, not a fade)."""
+    return tuple(((x / 255) ** (1 / GAMMA) * (1 - k) + (y / 255) ** (1 / GAMMA) * k) ** GAMMA * 255 for x, y in zip(a, b))
 
 
-def wave(t, period):                         # 0..1..0, eased (no hard edges)
+# LIGHT_ANIM=0 (default until the data line gets its resistor / level shift): no continuous breathing. On this board
+# every SPI write has a small chance to reach the stick garbled while the disk is busy (a random colour flash), so
+# a 25-a-second animation looked like a disco ball; with one write a second the stick stays calm (bench test,
+# 22 Nov 2026). States are steady; only a change of state glides in (a short burst of writes), then it is quiet.
+ANIM = conf("LIGHT_ANIM", "0") == "1"
+
+
+def wave(t, period):                         # 0..1..0, a plain sine: no plateau, no steep middle (steady 0.6 without ANIM)
+    if not ANIM:
+        return 0.6
     return 0.5 - 0.5 * math.cos(t * 2 * math.pi / period)
+
+
+def smooth(k):
+    k = max(0.0, min(1.0, k))
+    return k * k * (3 - 2 * k)
 
 
 # what is wrong, shown by place and colour on a fault / warning bar
@@ -93,9 +130,9 @@ def with_cause(base, cause, t):
     px = [COLOURS[base]] * COUNT
     if cause in CAUSES:
         leds, col = CAUSES[cause]
-        k = wave(t, 1.8)
+        k = wave(t, 3.6)
         for i in leds:
-            px[i] = mix(scale(COLOURS[base], 0.25), COLOURS[col], k)
+            px[i] = mix(COLOURS[base], COLOURS[col], 0.15 + 0.85 * k)
     return px
 
 
@@ -121,25 +158,29 @@ def code_locked():
 def frame(state, arg, t):
     """Eight colours for one moment of a state."""
     if state == "suspect":                   # red, slow breath — never used for anything else
-        return [scale(COLOURS["red"], 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * 2 * math.pi / 3.6)))] * COUNT
+        return [mix(scale(COLOURS["red"], 0.2), COLOURS["red"], wave(t, 5.0))] * COUNT
     if state == "fault":
         return with_cause("orange", arg, t)
     if state == "locked":                    # red / white, fading into each other, alternate LEDs opposite
-        k = wave(t, 1.6)
+        k = wave(t, 4.5)
         return [mix(COLOURS["red"], COLOURS["white"], k if i % 2 == 0 else 1 - k) for i in range(COUNT)]
     if state == "warning":
         return with_cause("yellow", arg, t)
-    if state == "pulling":                   # blue bar; filled to the percentage, or a running fill
+    if state == "pulling":                   # blue bar; filled to the percentage (its head breathes), or a soft running fill
+        dim = scale(COLOURS["blue"], 0.1)
         try:
             pct = max(0, min(100, int(arg)))
             lit = max(1, round(pct * COUNT / 100))
-            head = int(t * 4) % 2 == 0
-            return [COLOURS["blue"] if i < lit - 1 or (i == lit - 1 and head) else scale(COLOURS["blue"], 0.08) for i in range(COUNT)]
+            head = mix(dim, COLOURS["blue"], 0.25 + 0.75 * wave(t, 2.8))
+            return [COLOURS["blue"] if i < lit - 1 else head if i == lit - 1 else dim for i in range(COUNT)]
         except ValueError:
-            pos = (t * 4) % (COUNT + 3)
-            return [COLOURS["blue"] if i < pos else scale(COLOURS["blue"], 0.08) for i in range(COUNT)]
+            if not ANIM:                     # steady: the whole bar blue
+                return [COLOURS["blue"]] * COUNT
+            p = (t * 2.2) % (COUNT + 5)      # fill LED by LED, hold, let it all sink, start again
+            out = 1 - smooth((p - COUNT - 1.5) / 2.5)
+            return [mix(dim, COLOURS["blue"], smooth(p - i) * out) for i in range(COUNT)]
     if state == "checking":                  # cyan breath
-        return [scale(COLOURS["cyan"], 0.3 + 0.7 * (0.5 - 0.5 * math.cos(t * 2 * math.pi / 2.2)))] * COUNT
+        return [mix(scale(COLOURS["cyan"], 0.2), COLOURS["cyan"], wave(t, 4.0))] * COUNT
     if state == "done":
         return [COLOURS["green"]] * COUNT
     if state == "unpaired":                  # white, a dot at each end
@@ -159,46 +200,58 @@ def main():
     stop = []
     signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
     signal.signal(signal.SIGINT, lambda *_: stop.append(1))
-    last = None
     t0 = time.monotonic()
-    checked = 0.0
+    last, sent = None, -10.0
+    checked = -1.0
     state, arg, maint, locked, preview = "off", "", False, False, None
     cur, cur_t = None, None
+    tick = 0
+    step = 1 / (FPS * SUB)
+    due = t0
     while not stop:
         t = time.monotonic() - t0
-        if t - checked >= 0.25:              # files are tiny; four looks a second
-            checked = t
-            parts = (read(os.path.join(RUN_DIR, "light"), "off").split() or ["off"])
-            state, arg = parts[0], (parts[1] if len(parts) > 1 else "")
-            maint = os.path.exists(os.path.join(RUN_DIR, "maint"))
-            locked = code_locked()
-            # the page can show one state on the real stick for a few seconds (light cards)
-            pv = read(os.path.join(RUN_DIR, "light-preview")).split()
-            preview = pv[0] if len(pv) == 2 and pv[1].isdigit() and int(pv[1]) > time.time() else None
-        shown = state
-        if locked and state not in ("suspect", "fault", "test"):
-            shown = "locked"
-        if preview:                          # "fault-disk" etc. preview a cause
-            shown, _, cause = preview.partition("-")
-            if cause:
-                arg = cause
-        if shown == "maint":                 # preview of the maintenance pattern alone
-            px = frame("ready", "", t)
-        else:
-            px = frame(shown, arg, t)
-        if (maint and not preview and shown != "test") or shown == "maint":
-            k = wave(t, 2.0)                 # purple breathes over the state
-            px = [mix(c, COLOURS["purple"], k) for c in px]
-        # every change fades: the shown colour follows the target (about a quarter second)
-        dt = t - (cur_t or t)
-        cur_t = t
-        a = 1.0 if cur is None else min(1.0, dt / 0.22)
-        cur = list(px) if cur is None else [mix(c, n, a) for c, n in zip(cur, px)]
-        data = encode([tuple(int(x + 0.5) for x in c) for c in cur])
-        if data != last:
+        if tick % SUB == 0:                  # a new picture; the phases in between only re-send it
+            if t - checked >= 0.25:          # files are tiny; four looks a second
+                checked = t
+                parts = (read(os.path.join(RUN_DIR, "light"), "off").split() or ["off"])
+                state, arg = parts[0], (parts[1] if len(parts) > 1 else "")
+                maint = os.path.exists(os.path.join(RUN_DIR, "maint"))
+                locked = code_locked()
+                # the page can show one state on the real stick for a few seconds (light cards)
+                pv = read(os.path.join(RUN_DIR, "light-preview")).split()
+                preview = pv[0] if len(pv) == 2 and pv[1].isdigit() and int(pv[1]) > time.time() else None
+            shown = state
+            if locked and state not in ("suspect", "fault", "test"):
+                shown = "locked"
+            if preview:                      # "fault-disk" etc. preview a cause
+                shown, _, cause = preview.partition("-")
+                if cause:
+                    arg = cause
+            if shown == "maint":             # preview of the maintenance pattern alone
+                px = frame("ready", "", t)
+            else:
+                px = frame(shown, arg, t)
+            if (maint and not preview and shown != "test") or shown == "maint":
+                k = 0.8 * wave(t, 6.0)       # purple breathes slowly over the state; the state never quite disappears
+                px = [mix(c, COLOURS["purple"], k) for c in px]
+            # a change of state glides in: the shown colour follows the target (time constant 0.7 s)
+            dt = t - (cur_t if cur_t is not None else t)
+            cur_t = t
+            a = 1.0 if cur is None else 1 - math.exp(-dt / 0.7)
+            cur = list(px) if cur is None else [mix(c, n, a) for c, n in zip(cur, px)]
+        # sent only when it changed, plus once a second: while the disk works hard the SPI stream can stall for a moment
+        # and the stick then latches a garbled frame (a random flash). Fewer writes = fewer chances; the once-a-second
+        # resend repairs a frame that came out wrong while nothing was changing.
+        data = encode(cur, 0)
+        if data != last or t - sent >= 1.0:
             os.write(fd, data)
-            last = data
-        time.sleep(1 / FPS)
+            last, sent = data, t
+        tick += 1
+        due += step
+        now = time.monotonic()
+        if due < now - 0.1:                  # fell behind (busy box): do not sprint to catch up
+            due = now
+        time.sleep(max(0.0, due - now))
     os.write(fd, encode([COLOURS["dark"]] * COUNT))
     os.close(fd)
 

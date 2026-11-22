@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# NOQ Purser r1 case: white tray + shell, screwless (snap ring), heat-stake pins, light through a thinned top.
+# NOQ Purser r1b case: white tray + shell, screwless (seven cantilever snap hooks), heat-stake pins, light through a thinned top.
 # x: left -> right (RTC | Orange Pi | SSD), y: front (ports) -> back, z: up. Origin: outer front-left-bottom corner.
 import cadquery as cq, svgelements as se, json, sys
 from shapely.geometry import Polygon
@@ -44,7 +44,8 @@ def P(x, y):                             # inner coords -> outer coords
 
 z0 = FLOOR                               # inner floor
 zb = z0 + STAND                          # board bottom
-OPI_C = P(X_OPI + OPI[0] / 2, 0.5 + OPI[1] / 2)
+Y_OPI = 1.8                              # board edge to the front wall's inner face (r1b: was 0.5; micro HDMI nose 0.75 now clears)
+OPI_C = P(X_OPI + OPI[0] / 2, Y_OPI + OPI[1] / 2)
 
 def rrect(w, h, r, z, height, cx, cy):
     return cq.Workplane().box(w, h, height, centered=(True, True, False)).edges('|Z').fillet(r).translate((cx, cy, z))
@@ -79,31 +80,61 @@ big = 400
 tray = body.intersect(cq.Workplane().box(big, big, SPLIT, centered=(True, True, False)).translate((OX / 2, OY / 2, 0)))
 shell = body.intersect(cq.Workplane().box(big, big, OZ, centered=(True, True, False)).translate((OX / 2, OY / 2, SPLIT)))
 for _n, (_a, _b, _t) in SLOTS.items():
+    if _n == 'usbc':
+        continue
     shell = shell.cut(slot(_a, _b, _t, ROUND.get(_n, 0.8)))
-# micro HDMI stays closed (not used), but its nose reaches 0.25 mm past the inner face of the front wall:
-# a 1 mm deep relief inside the wall, open to the seam so the shell slides down over it
-(_h0, _h1), (_, _hz), _ = PORTS['hdmi']
-shell = shell.cut(cq.Workplane().box(_h1 - _h0 + 1.4, 1.1, top_pcb + _hz + 0.6 - (SPLIT - 1), centered=False)
-                  .translate((OPI_C[0] + _h0 - 0.7, WALL - 1.0, SPLIT - 1)))
+# USB-C (r1b): a full stadium, round at both ends (Umut). With the board 1.8 mm off the wall the connector no longer reaches
+# into the wall, so the opening need not run down to the seam; it is centred on the connector and sized for an upright
+# plug overmould up to about 9 x 12.5 mm. Its lowest 0.3 mm falls below the seam, so the tray's wall is cut too.
+_c0, _c1 = PORTS['usbc'][0]; _cz0, _cz1 = PORTS['usbc'][1]
+USBC_W, USBC_H = 9.4, 13.4
+usbc_cut = (cq.Workplane('XZ').center(OPI_C[0] + (_c0 + _c1) / 2, top_pcb + (_cz0 + _cz1) / 2)
+            .slot2D(USBC_H, USBC_W, 90).extrude(-(WALL + 1.5)).translate((0, -0.5, 0)))
+shell = shell.cut(usbc_cut)
+# micro HDMI stays closed (not used); with the board 1.8 mm off the wall its 0.75 mm nose clears the wall by about 1 mm
 
 # tray lip (goes up inside the shell), cut away behind the Orange Pi's ports
 lo = rrect(IN_X - 2 * CLR, IN_Y - 2 * CLR, R_PLAN - WALL - CLR, SPLIT, LIP_H, OX / 2, OY / 2)
 li = rrect(IN_X - 2 * (CLR + LIP_T), IN_Y - 2 * (CLR + LIP_T), R_PLAN - WALL - CLR - LIP_T, SPLIT - 1, LIP_H + 2, OX / 2, OY / 2)
 lip = lo.cut(li).cut(cq.Workplane().box(OPI[0] + 3, 6, 20, centered=(True, False, False)).translate((OPI_C[0], 0, SPLIT - 1)))
 tray = tray.union(lip)
+tray = tray.cut(usbc_cut)                 # the USB-C stadium's lowest part
 
-# snaps: half-round ridges on the lip, matching grooves in the shell
-SNAP_Z = SPLIT + LIP_H / 2
-def ridge(x, y, along, r):
-    if along == 'x':
-        return cq.Workplane('YZ').center(y, SNAP_Z).circle(r).extrude(8).translate((x - 4, 0, 0))
-    return cq.Workplane('XZ').center(x, SNAP_Z).circle(r).extrude(-8).translate((0, y - 4, 0))
-yf, yb = WALL + CLR, OY - WALL - CLR
-xl, xr = WALL + CLR, OX - WALL - CLR
-snaps = [(28, yf, 'x'), (OX - 30, yf, 'x'), (35, yb, 'x'), (OX / 2, yb, 'x'), (OX - 35, yb, 'x'), (xl, OY - 18, 'y'), (xr, OY / 2, 'y')]
-for x, y, a in snaps:
-    tray = tray.union(ridge(x, y, a, 0.55).intersect(lo))     # keep only the outward half
-    shell = shell.cut(ridge(x, y, a, 0.7))
+# ---- snap hooks (r1b; the r1 lip ridges did not hold) ----
+# Seven cantilever hooks stand up from the tray floor along the walls, flex inward and catch a pocket in the shell wall.
+# Beam 1.6 thick, 9 wide, free 11 mm above the seam (PETG strain ~1.6 % at 0.8 mm deflection); root fused to the tray
+# wall from the floor up, with a fillet. Hook: 1.0 mm out, 30 deg lead-in on top, 45 deg catch underneath (prints without
+# support; a firm pull opens it). The lip stays for alignment only and is cut away around each hook.
+HK_T, HK_W, HK_L, HK_OUT, HK_GAP = 1.6, 9.0, 11.0, 1.0, 0.2
+HK_TOP = SPLIT + HK_L
+# (along-wall position measured in inner coords, wall): kept on straight wall runs, clear of ports, switch, RTC and SSD
+HOOKS = [(20.0, 'f'), (36.0, 'f'), (58.0, 'b'), (90.0, 'b'), (46.0, 'l'), (18.0, 'r'), (46.0, 'r')]
+def hook_parts(pos, wall):
+    # build for the front wall (outward = -y), then place
+    T = HK_TOP
+    # beam profile (local y = outward negative): 45 deg catch, short flat, ~29 deg lead-in up to the tip
+    prof = (cq.Workplane('YZ').polyline([(0, z0), (0, T - 3.6), (-HK_OUT, T - 2.6), (-HK_OUT, T - 2.1),
+                                          (0, T - 0.3), (0, T), (HK_T, T), (HK_T, z0)]).close().extrude(HK_W)
+            .translate((-HK_W / 2, 0, 0)))
+    root = cq.Workplane().box(HK_W, HK_GAP + 0.01, SPLIT - z0, centered=(True, False, False)).translate((0, -HK_GAP - 0.01, z0))
+    beam = prof.union(root).translate((0, HK_GAP, 0))                                      # beam outer face 0.2 off the wall
+    slot = cq.Workplane().box(HK_W + 2.0, HK_T + HK_GAP + 0.6, LIP_H + 1, centered=(True, False, False)).translate((0, -0.1, SPLIT - 0.5))
+    # pocket in the shell wall (wall face at local y = 0): catch face 0.1 below the hook's, 45 deg roof (prints inverted)
+    pocket = (cq.Workplane('YZ').polyline([(0.3, T - 3.8), (-1.2, T - 2.3), (-1.2, T - 1.6), (0.3, T - 0.1)]).close()
+              .extrude(HK_W + 0.8).translate((-(HK_W + 0.8) / 2, 0, 0)))
+    if wall == 'f':
+        m = lambda s: s.translate((WALL + pos, WALL, 0))
+    elif wall == 'b':
+        m = lambda s: s.mirror('XZ').translate((WALL + pos, OY - WALL, 0))
+    elif wall == 'l':
+        m = lambda s: s.rotate((0, 0, 0), (0, 0, 1), -90).translate((WALL, WALL + pos, 0))
+    else:
+        m = lambda s: s.rotate((0, 0, 0), (0, 0, 1), 90).translate((OX - WALL, WALL + pos, 0))
+    return m(beam), m(slot), m(pocket)
+for _p, _w in HOOKS:
+    _beam, _slot, _pocket = hook_parts(_p, _w)
+    tray = tray.cut(_slot).union(_beam)
+    shell = shell.cut(_pocket)
 # finger notch at the seam, right end, to lift the shell
 shell = shell.cut(cq.Workplane('YZ').center(OY / 2, SPLIT).ellipse(9, 2.2).extrude(4).translate((OX - 3, 0, 0)))
 
@@ -122,7 +153,7 @@ for sx in (-1, 1):
 
 # RTC (HW-084 / ZS-042), battery up, 6-pin edge to the left, at the back of the left bay
 rx, ry = P(X_RTC, IN_Y - 2.3 - RTC[1])
-RTC_HOLES = [(8.5, RTC[1] - 2.1), (8.5, 2.1), (8.5 + 25.5, RTC[1] - 2.1)]
+RTC_HOLES = [(8.5, RTC[1] - 2.1), (8.5, 2.1), (8.5 + 25.5, 2.1)]   # r1b: the single far hole is on the front edge (Umut)
 for hx, hy in RTC_HOLES:
     tray = tray.union(stake(rx + hx, ry + hy, z0 - 0.01, STAND, RTC[2]))
 
@@ -180,41 +211,37 @@ for g in geoms:
     cutter = sol if cutter is None else cutter.union(sol)
 shell = shell.cut(cutter)
 
-# ---- switch ring (separate colour): 6 high cone, 12 -> 10.5; nut + washer inside the lower part,
-#      solid from 5 mm with an M6 x 0.75 internal thread (the usual bushing on mini toggles) ----
+# ---- switch ring (separate colour): 6 high cone, 12 -> 10.5, screwed straight onto the switch bushing ----
 RH, RD0, RD1 = 6.0, 12.0, 10.5
 ring = cq.Workplane().circle(RD0 / 2).workplane(offset=RH).circle(RD1 / 2).loft()
 ring = ring.faces('>Z').edges().fillet(0.6)
-ring = ring.cut(cq.Workplane().circle(9.7 / 2).extrude(2.6).translate((0, 0, -0.01)))        # nut (8 AF) + washer
-ring = ring.cut(cq.Workplane().circle(7.2 / 2).extrude(5.0))                                  # over the bushing thread
-ring = ring.cut(cq.Workplane().circle(5.3 / 2).extrude(RH + 1))                               # thread minor
-helix = cq.Wire.makeHelix(pitch=0.75, height=2.2, radius=2.55).translate((0, 0, 4.4))
-tooth = (cq.Workplane('XZ').polyline([(2.55, 4.4 - 0.32), (3.15, 4.4), (2.55, 4.4 + 0.32)]).close()
-         .sweep(cq.Workplane().add(helix), isFrenet=True))
-ring = ring.cut(tooth.intersect(cq.Workplane().circle(4).extrude(RH - 5.0 + 0.01).translate((0, 0, 5.0))))
+# r1b (Umut: no nut underneath; it must grip from the very bottom): no nut pocket, no plain bore. One straight hole,
+# 5.6 mm, all the way up: the switch's metal bushing thread (M6 x 0.75 or 1/4"-40, both fit) cuts its own thread into
+# the PETG from the first turn. A 0.5 mm lead-in chamfer at the bottom starts it straight.
+ring = ring.cut(cq.Workplane().circle(5.6 / 2).extrude(RH + 1).translate((0, 0, -0.5)))
+ring = ring.cut(cq.Workplane().circle(5.6 / 2 + 0.5).workplane(offset=0.5).circle(5.6 / 2).loft().translate((0, 0, -0.001)))
 # placed: bottom on the 1 mm seat, axis out of the left wall
 ring_placed = ring.rotate((0, 0, 0), (0, 1, 0), -90).translate((SEAT, SW_Y, SW_Z))
 
-# ---- USB-A plug: closes the upright USB-A opening. A thin flange outside, an insert that presses into the opening
-#      (the socket's nose reaches 0.6 mm into the wall, so the insert is 1.7 deep); nothing goes into the socket itself.
-_a, _b, _t = SLOTS['usba']
-pz1 = top_pcb + _t
-flange = cq.Workplane().box(_b - _a + 1.6, 0.8, pz1 + 0.8 - SPLIT, centered=False).translate((OPI_C[0] + _a - 0.8, -0.8, SPLIT))
-flange = flange.edges('|Y').fillet(1.2)
-insert = cq.Workplane().box(_b - _a - 0.2, 1.7, pz1 - 0.1 - (SPLIT + 0.1), centered=False).translate((OPI_C[0] + _a + 0.1, 0.0, SPLIT + 0.1))
-plug = flange.union(insert)
-for _x in (OPI_C[0] + _a + 0.1, OPI_C[0] + _b - 0.1):          # friction ridges on both sides
-    for _z in (SPLIT + 4.0, pz1 - 4.0):
-        plug = plug.union(cq.Workplane('XY').circle(0.28).extrude(3.0).rotate((0, 0, 0), (1, 0, 0), -90)
-                          .intersect(cq.Workplane().box(2, 1.5, 2, centered=(True, False, True)).translate((0, 0.1, 0))).translate((_x, 0, _z)))
-# the shell's front wall runs from y = 0 to WALL; the plug face sits flush with the outside
-plug_placed = plug.translate((0, 0, 0))
+# ---- USB-A dust plug (r1b): goes INTO the USB-A socket, independent of the case (r1's case-pressed plug did not close).
+#      A plate fills the gap between the socket's tongue and its shell (where a USB plug's contact block goes); the socket's
+#      spring tabs hold it. Fits either way round (turn it 180 deg if the tongue is on the other side). The head sits in the
+#      case opening, 0.1 mm inside the outer face, and stops on the socket's rim.
+_ux = OPI_C[0] + (PORTS['usba'][0][0] + PORTS['usba'][0][1]) / 2           # socket centre (x)
+_uz = top_pcb + (PORTS['usba'][1][0] + PORTS['usba'][1][1]) / 2             # socket centre (z)
+_uy = WALL + Y_OPI - PORTS['usba'][2]                                        # socket face (y, outer coords)
+HEAD = (5.6, _uy - 0.1, 12.8)
+head = cq.Workplane().box(*HEAD, centered=(True, False, True)).edges('|Y').fillet(1.2).faces('<Y').edges().chamfer(0.4)
+plate = (cq.Workplane().box(2.2, 8.0, 11.4, centered=(False, False, True)).translate((-2.5, HEAD[1], 0))
+         .faces('>Y').edges().chamfer(0.5))
+plug = head.union(plate)
+plug_placed = plug.translate((_ux, 0.1, _uz))
 # ---- export ----
 # print orientation: tray floor down, shell top down (logo and light window first), ring wide end down, plug face down
 def on_bed(p):
     bb = p.val().BoundingBox(); return p.translate((-bb.xmin, -bb.ymin, -bb.zmin))
 shell_p = on_bed(shell.rotate((0, 0, 0), (1, 0, 0), 180))
-plug_p = on_bed(plug.rotate((0, 0, 0), (1, 0, 0), -90))
+plug_p = on_bed(plug.rotate((0, 0, 0), (1, 0, 0), 90))   # head face down, plate up
 for name, part in (('purser-kasa-taban', on_bed(tray)), ('purser-kasa-kapak', shell_p), ('purser-anahtar-halkasi', on_bed(ring)), ('purser-usb-tapasi', plug_p)):
     cq.exporters.export(part, f'{OUT}/{name}.step')
     cq.exporters.export(part, f'{OUT}/{name}.stl', tolerance=0.02, angularTolerance=0.1)
@@ -245,7 +272,7 @@ for n, g in ghosts.items():
         except Exception:
             pass
     rep[n] = round(v, 2)
-rep['tapa_vs_kasa'] = round(sum((plug.intersect(p).val().Volume() if plug.intersect(p).vals() else 0) for p in (tray, shell)), 2)
+rep['tapa_vs_kasa'] = round(sum((plug_placed.intersect(p).val().Volume() if plug_placed.intersect(p).vals() else 0) for p in (tray, shell)), 2)
 rep['halka_vs_kasa'] = round(sum((ring_placed.intersect(p).val().Volume() if ring_placed.intersect(p).vals() else 0) for p in (tray, shell)), 2)
 info = {'outer_mm': [round(OX, 1), round(OY, 1), round(OZ, 1)], 'split_z': SPLIT, 'interference_mm3': rep,
         'tray_vol_cm3': round(tray.val().Volume() / 1000, 1), 'shell_vol_cm3': round(shell.val().Volume() / 1000, 1)}
