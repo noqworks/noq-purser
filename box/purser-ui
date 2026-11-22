@@ -17,7 +17,7 @@ PAGE = os.environ.get("PURSER_UI_PAGE", os.path.join(LIB, "ui", "index.html"))
 PURSER = os.environ.get("PURSER_BIN", "/usr/local/sbin/purser")
 PORT = int(os.environ.get("PURSER_UI_PORT", "443"))
 ID_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$")
-LIGHTS = {"ready", "unpaired", "pulling", "checking", "done", "warning", "fault", "suspect", "locked", "maint", "test"}
+LIGHTS = {"ready", "unpaired", "pulling", "checking", "done", "warning", "fault", "suspect", "locked", "maint", "test", "fault-disk", "fault-server", "fault-verify", "warning-clock"}
 
 
 def read(path, default=""):
@@ -97,9 +97,12 @@ def hardware():
         d["size_b"] = int(read("/sys/class/block/sda/size", "0")) * 512 or None
     except ValueError:
         d["size_b"] = None
-    # times the disk dropped off USB since this boot (kernel log)
+    # kernel log since boot: drops off USB, and a device that is plugged in but does not answer (enumeration fails)
     rc, out = run("journalctl", "-k", "-b", "0", "-o", "cat", "--no-pager", timeout=10)
-    d["drops"] = sum(1 for line in out.splitlines() if "USB disconnect" in line) if rc == 0 else 0
+    lines = out.splitlines() if rc == 0 else []
+    d["drops"] = sum(1 for line in lines if "USB disconnect" in line)
+    last_new = max((i for i, line in enumerate(lines) if " new " in line and "USB device" in line), default=-1)
+    d["no_answer"] = any("unable to enumerate" in line or "not accepting address" in line for line in lines[last_new + 1:])
     try:
         board = round(int(read("/sys/class/thermal/thermal_zone0/temp", "0")) / 1000)
     except ValueError:
@@ -147,7 +150,8 @@ def status():
         mbit = int(re.sub(r"\D", "", d.get("link") or "") or 0)
     except ValueError:
         mbit = 0
-    kind = ("missing" if not d.get("present") else "slow" if mbit and mbit < 480 else "drops" if d.get("drops")
+    # (drops are not shown on their own: reseating the disk is a drop too; a drop during a run ends as disk_error)
+    kind = (("no_answer" if d.get("no_answer") else "missing") if not d.get("present") else "slow" if mbit and mbit < 480
             else "error" if (last_run or {}).get("result") == "disk_error" else None)
     s["disk_issue"] = {"kind": kind, "drops": d.get("drops", 0), "mbit": mbit} if kind else None
     s["clock"] = dict(clock_info(), now=int(time.time()), tz=(read("/etc/timezone").strip() or "UTC"))

@@ -8,7 +8,9 @@ is read from the state area. This program only draws:
 
   priority: suspect (red) > fault (orange) > code locked (red/white) > warning (yellow)
             > pulling (blue) / checking (cyan) > done (green) > ready (white)
-  maintenance on: the state alternates with purple once a second.
+  maintenance on: purple breathes in and out over the state (two-second cycle).
+  fault / warning with a cause: two LEDs pulse in the cause colour — disk 1-2 blue, server 3-4 cyan,
+  clock 5-6 white, verify 7-8 red. Every change fades (no hard steps).
 
 The SPI controller clocks 3.2 MHz; every LED bit becomes four SPI bits (1000 = 0, 1100 = 1), which
 fits both WS2812B and SK6812 timing. Distribution Python only, no extra modules.
@@ -75,6 +77,28 @@ def scale(col, k):
     return tuple(int(x * k) for x in col)
 
 
+def mix(a, b, k):
+    return tuple(x + (y - x) * k for x, y in zip(a, b))
+
+
+def wave(t, period):                         # 0..1..0, eased (no hard edges)
+    return 0.5 - 0.5 * math.cos(t * 2 * math.pi / period)
+
+
+# what is wrong, shown by place and colour on a fault / warning bar
+CAUSES = {"disk": ((0, 1), "blue"), "server": ((2, 3), "cyan"), "clock": ((4, 5), "white"), "verify": ((6, 7), "red")}
+
+
+def with_cause(base, cause, t):
+    px = [COLOURS[base]] * COUNT
+    if cause in CAUSES:
+        leds, col = CAUSES[cause]
+        k = wave(t, 1.8)
+        for i in leds:
+            px[i] = mix(scale(COLOURS[base], 0.25), COLOURS[col], k)
+    return px
+
+
 def read(path, default=""):
     try:
         with open(path, encoding="utf-8") as f:
@@ -99,12 +123,12 @@ def frame(state, arg, t):
     if state == "suspect":                   # red, slow breath — never used for anything else
         return [scale(COLOURS["red"], 0.35 + 0.65 * (0.5 - 0.5 * math.cos(t * 2 * math.pi / 3.6)))] * COUNT
     if state == "fault":
-        return [COLOURS["orange"]] * COUNT
-    if state == "locked":                    # red / white alternating halves of a second
-        on = int(t * 2) % 2 == 0
-        return [COLOURS["red"] if (i % 2 == 0) == on else COLOURS["white"] for i in range(COUNT)]
+        return with_cause("orange", arg, t)
+    if state == "locked":                    # red / white, fading into each other, alternate LEDs opposite
+        k = wave(t, 1.6)
+        return [mix(COLOURS["red"], COLOURS["white"], k if i % 2 == 0 else 1 - k) for i in range(COUNT)]
     if state == "warning":
-        return [COLOURS["yellow"]] * COUNT
+        return with_cause("yellow", arg, t)
     if state == "pulling":                   # blue bar; filled to the percentage, or a running fill
         try:
             pct = max(0, min(100, int(arg)))
@@ -139,6 +163,7 @@ def main():
     t0 = time.monotonic()
     checked = 0.0
     state, arg, maint, locked, preview = "off", "", False, False, None
+    cur, cur_t = None, None
     while not stop:
         t = time.monotonic() - t0
         if t - checked >= 0.25:              # files are tiny; four looks a second
@@ -153,15 +178,23 @@ def main():
         shown = state
         if locked and state not in ("suspect", "fault", "test"):
             shown = "locked"
-        if preview:
-            shown = preview
+        if preview:                          # "fault-disk" etc. preview a cause
+            shown, _, cause = preview.partition("-")
+            if cause:
+                arg = cause
         if shown == "maint":                 # preview of the maintenance pattern alone
-            px = [COLOURS["purple"]] * COUNT if int(t) % 2 == 1 else frame("ready", "", t)
+            px = frame("ready", "", t)
         else:
             px = frame(shown, arg, t)
-        if maint and not preview and shown != "test" and int(t) % 2 == 1:
-            px = [COLOURS["purple"]] * COUNT
-        data = encode(px)
+        if (maint and not preview and shown != "test") or shown == "maint":
+            k = wave(t, 2.0)                 # purple breathes over the state
+            px = [mix(c, COLOURS["purple"], k) for c in px]
+        # every change fades: the shown colour follows the target (about a quarter second)
+        dt = t - (cur_t or t)
+        cur_t = t
+        a = 1.0 if cur is None else min(1.0, dt / 0.22)
+        cur = list(px) if cur is None else [mix(c, n, a) for c, n in zip(cur, px)]
+        data = encode([tuple(int(x + 0.5) for x in c) for c in cur])
         if data != last:
             os.write(fd, data)
             last = data

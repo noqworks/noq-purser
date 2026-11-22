@@ -1,3 +1,5 @@
 # NOQ Purser: no USB input device is ever accepted (keyboard injection through a front port).
 # This release has no FIDO support, so every HID interface is de-authorized.
 ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", ATTR{authorized}="0"
+# The light follows the disk at once: plugged in or pulled out, the state is decided again (not at the next hourly check).
+ACTION=="add|remove", SUBSYSTEM=="block", KERNEL=="sd[a-z]", RUN+="/usr/bin/systemd-run --no-block --collect --quiet /usr/local/sbin/purser light-refresh"

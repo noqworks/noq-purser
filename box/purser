@@ -64,6 +64,8 @@ case ${1:-} in
       fi
     else night_run; fi ;;
   tick) tick ;;
+  light-refresh)   # udev: the disk came or went; not while a job owns the light
+    if systemd_up && systemctl -q is-active purser.service purser-first-fill.service 2>/dev/null; then :; else led_update; fi ;;
   boot) cmd_boot ;;
   firstboot) cmd_firstboot ;;
   apply-config) apply_config ;;

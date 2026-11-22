@@ -18,13 +18,20 @@ led_update() {
     led_show setup; light_set unpaired; return 0
   fi
   if [ -s "$ST_SUSPECT_FLAG" ]; then led_show alarm; light_set suspect; return 0; fi
+  # no disk on USB: the nightly job cannot run, whatever the last result was
+  if ! disk_present; then led_show alarm; light_set fault disk; return 0; fi
   case $result in
     list_rejected|rejected_tree|tree_mismatch) led_show alarm; light_set suspect; return 0 ;;
-    verify_failed|disk_error|disk_full|list_fetch_failed) led_show alarm; light_set fault; return 0 ;;
+    verify_failed) led_show alarm; light_set fault verify; return 0 ;;
+    disk_error|disk_full) led_show alarm; light_set fault disk; return 0 ;;
+    list_fetch_failed) led_show alarm; light_set fault server; return 0 ;;
   esac
   if ! age=$(last_sound_age_h); then led_show setup; light_set ready; return 0; fi
-  if [ "$age" -ge "$LATE_H" ] || [ "$result" = uyari ] || [ "$result" = partial ] || [ "$result" = no_generation ] \
-     || [ "$result" = clock_untrusted ]; then
+  if [ "$result" = clock_untrusted ]; then
+    led_show warn; light_set warning clock
+  elif [ "$result" = no_generation ] || [ "$age" -ge "$LATE_H" ]; then
+    led_show warn; light_set warning server
+  elif [ "$result" = uyari ] || [ "$result" = partial ]; then
     led_show warn; light_set warning
   elif [ "$age" -lt 20 ]; then
     led_show ok; light_set 'done'
