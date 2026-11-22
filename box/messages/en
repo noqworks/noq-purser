@@ -11,6 +11,8 @@ N_TREE_MISMATCH|The tree of %s does not match its list; not published. Disk lock
 N_VERIFY_FAILED|Read-back verification of %s failed; not published. Disk locked.
 N_NO_TIME|No time left in the window for %s; it continues next night. Disk locked.
 N_PARTIAL|%s minutes passed and the transfer is not complete; the rest follows next night. Disk locked.
+N_DISK_DROPPED|The disk dropped off USB during the transfer; the transfer is incomplete and the rest follows on the next run. Check the bridge's USB wires and power.
+N_FIRST_FILL_PARTIAL|The first backup is not finished; the next run takes the rest with no time limit. Disk locked.
 N_DONE|Backup taken tonight, %s GB, %s minutes.%s
 N_WARNING|Backup taken tonight, %s GB, %s minutes. Warning: %s. Kept; not counted as suspect.%s
 N_SUSPECT|Tonight's backup %s is suspect: %s. Kept, flagged, deletion stopped.%s

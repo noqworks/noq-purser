@@ -115,7 +115,11 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
   rsync_opts
   light_set pulling
   if ! sandbox "$RSYNC_USER" "$STAGING" "$t" net -- "${RSYNC_OPTS[@]}" -e "$(ssh_e)" "$SERVER_USER@$SERVER:$id/" "$STAGING/"; then
-    abort_window partial "$id" N_PARTIAL "$MAX_MIN"; return 1
+    # why it stopped: the disk dropped off USB, the first fill is unfinished, or the night's time ran out
+    if disk_dropped; then abort_window disk_error "$id" N_DISK_DROPPED
+    elif [ -n "$FIRST_FILL" ]; then abort_window partial "$id" N_FIRST_FILL_PARTIAL
+    else abort_window partial "$id" N_PARTIAL "$MAX_MIN"; fi
+    return 1
   fi
 
   local r

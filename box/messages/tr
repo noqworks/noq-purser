@@ -11,6 +11,8 @@ N_TREE_MISMATCH|%s neslinin ağacı listeyle tutmuyor; yayımlamadım. Diski kil
 N_VERIFY_FAILED|%s neslinin geri okuma doğrulaması tutmadı; yayımlamadım. Diski kilitledim.
 N_NO_TIME|Pencerede %s için süre kalmadı; sonraki gece sürer. Diski kilitledim.
 N_PARTIAL|%s dakika doldu, aktarım bitmedi; kalanını sonraki gece alırım. Diski kilitledim.
+N_DISK_DROPPED|Disk aktarım sırasında USB'den düştü; aktarım yarım kaldı, kalanını sonraki çalıştırmada alırım. Köprünün USB tellerini ve beslemesini denetle.
+N_FIRST_FILL_PARTIAL|İlk yedek bitmedi; kalanını sonraki çalıştırmada süre sınırı olmadan alırım. Diski kilitledim.
 N_DONE|Bu gece yedeği aldım, %s GB, %s dakika.%s
 N_WARNING|Bu gece yedeği aldım, %s GB, %s dakika. Uyarı: %s. Sakladım; şüpheli saymadım.%s
 N_SUSPECT|Bu geceki yedek (%s) şüpheli: %s. Sakladım, işaretledim, silmeyi durdurdum.%s

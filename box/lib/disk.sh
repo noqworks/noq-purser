@@ -47,6 +47,18 @@ disk_find() {   # 0 when the disk is present and readable; resets a hung bridge 
   return 1
 }
 
+# Did the disk drop off USB during the window? Its USB device number changes on every re-enumeration;
+# after a drop to USB 1.1 the port is gone altogether. Marked when the disk opens.
+disk_mark_usb() {
+  local p; p=$(cat "$ST_USB_PORT" 2>/dev/null) || { DISK_USB_AT=; return 0; }
+  DISK_USB_AT="$p:$(cat "$SYS_DIR/bus/usb/devices/$p/devnum" 2>/dev/null)"
+}
+disk_dropped() {
+  [ -n "${DISK_USB_AT:-}" ] || return 1
+  local p=${DISK_USB_AT%%:*}
+  [ "$p:$(cat "$SYS_DIR/bus/usb/devices/$p/devnum" 2>/dev/null)" != "$DISK_USB_AT" ]
+}
+
 disk_open() {
   need_config LUKS_UUID
   local dev port
@@ -58,6 +70,7 @@ disk_open() {
   install -d -m 0755 "$MNT"
   mountpoint -q "$MNT" || mount -o noatime "$MAPPER_DIR/$MAP" "$MNT"
   install -d -m 0755 "$GEN_DIR" "$AUDIT"
+  disk_mark_usb
   install -d -m 0700 "$AUDIT/liste" "$AUDIT/meta" "$AUDIT/supheli" "$AUDIT/temiz" "$AUDIT/pin"
   disk_usage_record
 }
