@@ -1,6 +1,7 @@
 #!/bin/bash
 # Inside the test container: set up the lab once, run the suites, print a summary.
 set -uo pipefail
+ssh-keygen -A >/dev/null 2>&1 || true   # the image carries no host keys; this container makes its own
 . /src/tests/lib/assert.sh >/dev/null
 SUITES=("$@"); [ ${#SUITES[@]} -gt 0 ] || SUITES=(shellcheck unit e2e attack compat)
 export T_RESULTS=/run/purser-test/results

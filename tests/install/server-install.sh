@@ -8,7 +8,7 @@ IMAGES=("$@"); [ ${#IMAGES[@]} -gt 0 ] || IMAGES=(debian:trixie ubuntu:24.04 ubu
 rc=0; summary=()
 for base in "${IMAGES[@]}"; do
   tag=purser-srv-test:${base//[:.\/]/-}; name=purser-srv-$$-${base//[:.\/]/-}
-  if ! docker build -q --build-arg BASE="$base" -t "$tag" "$REPO/tests/install" >/dev/null; then
+  if ! docker build --pull -q --build-arg BASE="$base" -t "$tag" "$REPO/tests/install" >/dev/null; then
     summary+=("$base: image build failed (untested)"); rc=1; continue
   fi
   docker run -d --name "$name" --privileged --cgroupns=private --tmpfs /run:rw,exec,nosuid,size=64m --tmpfs /run/lock \
@@ -19,6 +19,7 @@ for base in "${IMAGES[@]}"; do
   [ $r -eq 0 ] || { rc=1; printf '%s\n' "$out" | grep -vE '^(  ok|  FAIL)' | tail -25; }
   summary+=("$(printf '%s\n' "$out" | sed -n 's/^RESULT //p' | awk '{ printf "%s %s: %s passed, %s failed", $1, $2, $3, $4 }')")
   docker rm -f "$name" >/dev/null
+  [ "${PURSER_KEEP_IMAGE:-0}" = 1 ] || docker rmi -f "$tag" >/dev/null 2>&1 || true
 done
 echo; echo "== server install"; printf '  %s\n' "${summary[@]}"
 exit $rc

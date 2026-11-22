@@ -22,7 +22,7 @@ if [ "${1:-}" = --image-tools ]; then exec bash "$REPO/image/tests/run.sh"; fi
 # Loop devices are global to the host kernel: lab runs and the image build take turns.
 exec 8>"${PURSER_LOOP_LOCK:-/tmp/noq-purser-loop.lock}"
 flock 8
-docker build -q --build-arg BASE="$BASE" -t "$IMAGE" "$REPO/tests/container" >/dev/null
+docker build --pull -q --build-arg BASE="$BASE" -t "$IMAGE" "$REPO/tests/container" >/dev/null
 mounts=(-v "$REPO:/src:ro")
 if [ "${1:-}" = --make-fixture ]; then
   old=$(readlink -f "${2:?original core}"); out=$(readlink -f "${3:?out dir}"); mkdir -p "$out"
@@ -32,6 +32,8 @@ before=$(losetup -l -n -O BACK-FILE 2>/dev/null | sort | md5sum)
 cleanup() {
   docker exec "$NAME" sh -c 'umount -R /srv/purser 2>/dev/null; for l in $(cat /run/purser-test/loops 2>/dev/null); do losetup -d "$l" 2>/dev/null; done' >/dev/null 2>&1 || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
+  # the image is rebuilt (pulled + patched) on every run; do not leave it on the host for scanners and attackers
+  [ "${PURSER_KEEP_IMAGE:-0}" = 1 ] || docker rmi -f "$IMAGE" >/dev/null 2>&1 || true
   after=$(losetup -l -n -O BACK-FILE 2>/dev/null | sort | md5sum)
   [ "$before" = "$after" ] && echo "host loop devices: unchanged" || echo "WARNING: host loop device list changed" >&2
 }

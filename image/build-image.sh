@@ -54,7 +54,7 @@ echo "$ARMBIAN_SHA256  $CACHE/$ARMBIAN_FILE" | sha256sum -c --quiet - \
   || { echo "checksum mismatch: $CACHE/$ARMBIAN_FILE is not the pinned release" >&2; exit 1; }
 
 # 2. the build container
-docker build -q -t purser-image-builder:trixie "$REPO/image/builder" >/dev/null
+docker build --pull -q -t purser-image-builder:trixie "$REPO/image/builder" >/dev/null
 
 # 3. both stages inside it. The loop lock is shared with tests/run.sh: loop devices are global
 # to the host kernel, so a loop device is attached only while the lock is held.
@@ -65,7 +65,7 @@ commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
 mounts=(-v "$REPO:/src:ro" -v "$CACHE:/cache" -v "$OUT:/out" -v "$LOCK:/lock")
 [ -n "$SETUP_CONF" ] && mounts+=(-v "$SETUP_CONF:/setup.conf:ro")
 name=purser-image-build-$$
-trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+trap 'docker rm -f "$name" >/dev/null 2>&1 || true; [ "${PURSER_KEEP_IMAGE:-0}" = 1 ] || docker rmi -f purser-image-builder:trixie >/dev/null 2>&1 || true' EXIT
 docker run --rm --name "$name" --privileged "${mounts[@]}" \
   -e BASE_XZ="/cache/$ARMBIAN_FILE" -e BASE_FILE="$ARMBIAN_FILE" -e BASE_SHA256="$ARMBIAN_SHA256" \
   -e REBUILD_BASE="$REBUILD_BASE" -e UPGRADE="$UPGRADE" -e GIT_COMMIT="$commit" \
