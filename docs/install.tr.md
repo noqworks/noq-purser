@@ -21,7 +21,7 @@ systemd'li Debian 12/13 ya da Ubuntu 24.04+.
 
 ```
 tar xzf noq-purser-server-1.0.0.tar.gz && cd noq-purser-server-1.0.0
-sudo ./install.sh --listen 192.168.1.10        # sunucunun, kutunun ağındaki adresi
+sudo ./install.sh                              # yerel ağ adresini bulur; seçmek için --listen <ip>
 sudo nano /etc/purser/source.conf               # SOURCES=("pgbackrest:/var/lib/pgbackrest" "borg:/srv/borg" ...)
 sudo purser status
 ```

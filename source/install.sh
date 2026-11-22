@@ -43,7 +43,15 @@ if [ $UNINSTALL = 1 ]; then
   exit 0
 fi
 
-[[ $LISTEN =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "--listen <IPv4 address the box connects to> is required" >&2; exit 2; }
+# no --listen: the address used before, otherwise the address this server reaches the network with
+if [ -z "$LISTEN" ] && [ -r /etc/purser/gate.conf ]; then
+  LISTEN=$(sed -n 's/^LISTEN_ADDR=//p' /etc/purser/gate.conf | tail -1)
+  ip -4 -o addr show 2>/dev/null | grep -q " $LISTEN/" || LISTEN=""
+fi
+if [ -z "$LISTEN" ]; then LISTEN=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1); fi
+[[ $LISTEN =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "give --listen <IPv4 address the box connects to>" >&2; exit 2; }
+ip -4 -o addr show 2>/dev/null | grep -q " $LISTEN/" || { echo "$LISTEN is not an address of this server; give --listen <one of: $(ip -4 -o addr show scope global | awk '{ sub(/\/.*/, "", $4); printf "%s ", $4 }')>" >&2; exit 2; }
+echo "gate address: $LISTEN (the box connects here)"
 [[ $PORT =~ ^[0-9]+$ ]] && [ "$PORT" -gt 0 ] && [ "$PORT" -lt 65536 ] || { echo "bad --port" >&2; exit 2; }
 [[ $TIMER_AT =~ ^[0-2][0-9]:[0-5][0-9]$ ]] || { echo "bad --timer (HH:MM)" >&2; exit 2; }
 [[ $BASE =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "bad --base" >&2; exit 2; }
@@ -89,14 +97,15 @@ install -m 0755 "$HERE/purser-source" "$HERE/purser-admit" "$HERE/purser-pair" "
 install -m 0755 "$HERE/purser" "$PREFIX/sbin/purser"
 sed "s|^RRSYNC=.*|RRSYNC=\${RRSYNC:-$RRSYNC}|" "$HERE/purser-gate" > "$PREFIX/sbin/purser-gate.new"
 chmod 0755 "$PREFIX/sbin/purser-gate.new"; mv -f "$PREFIX/sbin/purser-gate.new" "$PREFIX/sbin/purser-gate"
-install -m 0644 "$HERE/sshd_config.in" "$HERE/source.conf.example" "$SHARE/"
 # a copy of this installer and its files, so "purser install" can run again from the installed system
 if [ "$HERE" != "$SHARE" ]; then
+  install -m 0644 "$HERE/sshd_config.in" "$HERE/source.conf.example" "$SHARE/"
+  cp -r "$HERE/examples" "$SHARE/"
   install -m 0755 "$HERE/install.sh" "$HERE/purser-source" "$HERE/purser-gate" "$HERE/purser-admit" "$HERE/purser-pair" "$HERE/purser" "$SHARE/"
   install -d "$SHARE/systemd"; install -m 0644 "$HERE"/systemd/* "$SHARE/systemd/"
 fi
-printf '%s\n' "${PURSER_VERSION:-1.0.0}" > "$SHARE/version"
-cp -r "$HERE/examples" "$SHARE/"
+[ -n "${PURSER_VERSION:-}" ] && printf '%s\n' "$PURSER_VERSION" > "$SHARE/version"
+[ -s "$SHARE/version" ] || printf '%s\n' "$(cat "$HERE/version" 2>/dev/null || echo 1.0.0)" > "$SHARE/version"
 
 step "configuration"
 install -d -m 0755 /etc/purser /etc/purser/ssh

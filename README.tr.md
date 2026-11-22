@@ -17,7 +17,7 @@ takvimiyle siler; sunucu kutuya ulaşamaz, ona silme diyemez.
 ## Dört adımda kurulum
 
 1. **Sunucu** (systemd'li Debian/Ubuntu): `noq-purser-server-1.0.0.tar.gz` dosyasını indir,
-   `sudo ./install.sh --listen <sunucunun yerel ağ adresi>` çalıştır, yedek depolarını
+   `sudo ./install.sh` çalıştır, yedek depolarını
    `/etc/purser/source.conf` dosyasına yaz.
 2. **Bilgisayar** (macOS ya da Linux): kart aracını çalıştır; Terminal'de
    `bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)`

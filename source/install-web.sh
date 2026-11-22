@@ -1,6 +1,6 @@
 #!/bin/bash
 # NOQ Purser, server side, straight from open.noq.works (no download step by hand):
-#   curl -fsSL https://open.noq.works/files/purser/install | sudo bash -s -- --listen <LAN address>
+#   curl -fsSL https://open.noq.works/files/purser/install | sudo bash
 # It reads the release manifest, fetches the server package, checks its SHA-256 and runs
 # install.sh with your options. install.sh keeps its own copy under /usr/local/share/noq-purser.
 set -euo pipefail

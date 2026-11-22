@@ -18,7 +18,7 @@ tell it to delete anything.
 ## Install in four steps
 
 1. **Server** (Debian/Ubuntu with systemd): download `noq-purser-server-1.0.0.tar.gz`, then
-   `sudo ./install.sh --listen <the server's LAN address>` and list your backup repositories in
+   `sudo ./install.sh` and list your backup repositories in
    `/etc/purser/source.conf`.
 2. **Computer** (macOS or Linux): run the card tool, in Terminal
    `bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)`
