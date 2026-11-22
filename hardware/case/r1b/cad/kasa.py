@@ -98,6 +98,12 @@ lo = rrect(IN_X - 2 * CLR, IN_Y - 2 * CLR, R_PLAN - WALL - CLR, SPLIT, LIP_H, OX
 li = rrect(IN_X - 2 * (CLR + LIP_T), IN_Y - 2 * (CLR + LIP_T), R_PLAN - WALL - CLR - LIP_T, SPLIT - 1, LIP_H + 2, OX / 2, OY / 2)
 lip = lo.cut(li).cut(cq.Workplane().box(OPI[0] + 3, 6, 20, centered=(True, False, False)).translate((OPI_C[0], 0, SPLIT - 1)))
 tray = tray.union(lip)
+# r1b.1: the lip stood 0.15 mm inside the wall's inner face, starting at the seam (z 6) with nothing under it, so it printed
+# in mid-air. A band from the floor up to the seam now fills the wall's inside under the lip and fuses lip, wall and floor.
+band_o = rrect(IN_X + 0.4, IN_Y + 0.4, R_PLAN - WALL + 0.2, z0 - 0.01, SPLIT - z0 + 0.02, OX / 2, OY / 2)
+BAND_T = CLR + LIP_T - 0.3                # 0.3 mm short of the lip's inner face (a 0.3 mm ledge prints fine): clear of the Orange Pi standoffs and the SSD
+band_i = rrect(IN_X - 2 * BAND_T, IN_Y - 2 * BAND_T, R_PLAN - WALL - BAND_T, z0 - 1, SPLIT - z0 + 2, OX / 2, OY / 2)
+tray = tray.union(band_o.cut(band_i))
 tray = tray.cut(usbc_cut)                 # the USB-C stadium's lowest part
 
 # ---- snap hooks (r1b; the r1 lip ridges did not hold) ----
