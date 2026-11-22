@@ -107,6 +107,8 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
   find -P "$STAGING" -xdev ! -user "$RSYNC_USER" -exec chown -h "$RSYNC_USER:$RSYNC_USER" {} + 2>/dev/null || true
   touch "$w/t0"; sleep 1
   cp "$w/t0" "$ST_MARK" 2>/dev/null || true
+  # bytes used on the disk as the transfer starts (after disk_make_room): the page shows the growth since
+  df -P -B1 "$MNT" 2>/dev/null | awk 'NR == 2 { print $3 }' > "$w/used0" || true
 
   t=$(budget_left "$start" 900)
   if [ "$t" -le 300 ]; then

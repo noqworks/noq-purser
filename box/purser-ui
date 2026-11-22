@@ -6,7 +6,7 @@ It reads the box's own state files and the hardware; it never reads backup data.
 asks for the 12-digit operation code, which the core checks (shared attempt counter and lock).
 Distribution Python only: http.server + ssl, no framework, no external resources.
 """
-import glob, http.server, json, os, re, shlex, socket, ssl, subprocess, sys, time
+import glob, http.server, json, os, re, shlex, socket, ssl, subprocess, sys, threading, time
 
 LIB = os.environ.get("PURSER_LIB", "/usr/local/lib/purser")
 CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
@@ -16,6 +16,8 @@ UI_DIR = os.environ.get("PURSER_UI_DIR", "/etc/purser/ui")
 PAGE = os.environ.get("PURSER_UI_PAGE", os.path.join(LIB, "ui", "index.html"))
 PURSER = os.environ.get("PURSER_BIN", "/usr/local/sbin/purser")
 PORT = int(os.environ.get("PURSER_UI_PORT", "443"))
+NET_ROUTE = os.environ.get("PURSER_NET_ROUTE", "/proc/net/route")
+NET_DIR = os.environ.get("PURSER_NET_DIR", "/sys/class/net")
 ID_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}Z$")
 LIGHTS = {"ready", "unpaired", "pulling", "checking", "done", "warning", "fault", "suspect", "locked", "maint", "test", "fault-disk", "fault-server", "fault-verify", "warning-clock"}
 
@@ -120,11 +122,104 @@ def generations():
     return list(reversed(rows))
 
 
+def disk_usage(c):
+    """Used / total bytes of the backup disk. While the disk is open and mounted: measured now
+    (statvfs, the same numbers as df); otherwise the last value the core recorded (disk.usage)."""
+    mnt = c.get("MNT") or "/srv/purser"
+    try:
+        if os.path.ismount(mnt):          # not mounted: statvfs would measure the SD card
+            st = os.statvfs(mnt)
+            if st.f_blocks > 0:
+                return {"used": (st.f_blocks - st.f_bfree) * st.f_frsize, "total": st.f_blocks * st.f_frsize,
+                        "live": True, "at": int(time.time())}
+    except OSError:
+        pass
+    rec = kv(os.path.join(STATE, "disk.usage"))
+    if not (rec.get("total", "").isdigit() and rec.get("used", "").isdigit()):
+        return None
+    return {"used": int(rec["used"]), "total": int(rec["total"]), "live": False,
+            "at": int(rec["at"]) if rec.get("at", "").isdigit() else None}
+
+
+# The transfer card. Sampled only when the page asks (no thread): with the page closed nothing is
+# measured. Per sample: /proc/net/route (default-route interface) and one rx_bytes counter.
+WINDOW_S, AVG_S, MIN_STEP_S, GAP_S = 120, 10, 1.0, 30
+IFACE_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,15}$")
+_tr = {"lock": threading.Lock(), "job": None, "base": None, "base_at": None, "last": None, "samples": []}
+
+
+def default_iface():
+    """Interface of the default route (lowest metric); None without one."""
+    best = None
+    for line in read(NET_ROUTE).splitlines()[1:]:
+        p = line.split()
+        try:
+            if len(p) >= 7 and p[1] == "00000000" and int(p[3], 16) & 1 and IFACE_RE.match(p[0]):
+                if best is None or int(p[6]) < best[1]:
+                    best = (p[0], int(p[6]))
+        except ValueError:
+            continue
+    return best[0] if best else None
+
+
+def rx_bytes(iface):
+    v = read(os.path.join(NET_DIR, iface, "statistics", "rx_bytes")) if iface else ""
+    return int(v) if v.isdigit() else None
+
+
+def transfer(light, usage, mono=None, wall=None):
+    """While the nightly job pulls or checks: phase, speed (default-route rx), bytes added to the
+    disk since the transfer began, elapsed time. No percentage: the list carries no sizes.
+    Only once the transfer has begun (work/t0; the job wipes work/ as it starts): the first-boot disk
+    preparation also shows "checking" and has nothing to report here."""
+    if light not in ("pulling", "checking"):
+        return None
+    work = os.path.join(RUN_DIR, "work")
+    try:
+        t0 = os.stat(os.path.join(work, "t0")).st_mtime
+    except OSError:
+        return None
+    mono = time.monotonic() if mono is None else mono
+    wall = time.time() if wall is None else wall
+    used0 = read(os.path.join(work, "used0"))
+    live = usage if usage and usage.get("live") else None
+    with _tr["lock"]:
+        if t0 != _tr["job"]:                       # a new job: forget the last one's baseline and speed
+            _tr.update(job=t0, base=None, base_at=None, last=None, samples=[])
+        if used0.isdigit():
+            base, since = int(used0), "start"
+        else:                                      # an older core: the first value this page saw
+            if _tr["base"] is None and live:
+                _tr.update(base=live["used"], base_at=int(wall))
+            base, since = _tr["base"], "seen" if _tr["base"] is not None else None
+        iface = default_iface()
+        rx = rx_bytes(iface)
+        last, samples = _tr["last"], _tr["samples"]
+        if rx is not None and (last is None or mono - last[0] >= MIN_STEP_S):
+            if last and last[2] == iface and rx >= last[1] and mono - last[0] <= GAP_S:
+                samples.append((mono, (rx - last[1]) / (mono - last[0]), mono - last[0]))
+            elif last:                             # a long gap, another interface or a reset counter
+                samples.clear()
+            _tr["last"] = (mono, rx, iface)
+        samples[:] = [x for x in samples if mono - x[0] <= WINDOW_S]     # monotonic: a clock step does not bend the line
+        recent = [x for x in samples if mono - x[0] <= AVG_S]
+        span = sum(x[2] for x in recent)
+        return {
+            "phase": light,
+            "elapsed_s": max(0, int(wall - t0)),
+            "received": max(0, live["used"] - base) if live and base is not None else None,
+            "since": since, "since_at": _tr["base_at"] if since == "seen" else None,
+            "rate": int(samples[-1][1]) if samples else None,
+            "rate_avg": int(sum(x[1] * x[2] for x in recent) / span) if span else None,
+            "samples": [[round(mono - x[0], 1), int(x[1])] for x in samples],
+            "window_s": WINDOW_S,
+        }
+
+
 def status():
     c = conf()
     last_run = kv(os.path.join(STATE, "last-run"))
     lock = kv(os.path.join(STATE, "code.lock"))
-    usage = kv(os.path.join(STATE, "disk.usage"))
     until = int(lock.get("until", "0") or 0)
     light = (read(os.path.join(RUN_DIR, "light"), "unpaired").split() or ["unpaired"])
     try:
@@ -140,9 +235,10 @@ def status():
         "suspect": read(os.path.join(STATE, "supheli-var")) or None,
         "code_set": bool(kv(os.path.join(STATE, "code.hash")).get("hash")),
         "code_locked_s": max(0, until - int(time.time())),
-        "usage": {"used": int(usage["used"]), "total": int(usage["total"])} if usage.get("total", "").isdigit() and usage.get("used", "").isdigit() else None,
+        "usage": disk_usage(c),
         "generations": generations(), "uptime_s": up,
     }
+    s["transfer"] = transfer(light[0], s["usage"])
     s.update(hardware())
     # what the box page shows under "Check the disk": missing, a slow link (USB 1.1), drops, or the last run could not reach it
     d = s["disk"]
