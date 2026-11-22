@@ -140,6 +140,12 @@ button:focus{outline:none}button:focus-visible{outline:2px solid var(--yazi);out
 .geri-bildirim{min-height:20px;margin:14px 0 0;text-align:center;font-size:13px;color:var(--soluk)}
 .surum{margin:0;text-align:center;font-size:12px;color:var(--cok-soluk);font-variant-numeric:tabular-nums}
 
+/* disk sorunu: neden, hangi pinler (çizim), ne yapılır */
+.sorun-neden{margin-top:10px;font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.35}
+.pin-cizim{margin-top:14px;padding:14px 12px;border-radius:var(--kose-ic);background:#121317;box-shadow:inset 0 2px 8px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.04)}
+.pin-cizim svg{display:block;width:100%;height:auto}
+.pin-cizim text{font:600 9px ui-sans-serif,system-ui,-apple-system,sans-serif;fill:#9a9ca2}
+.pin-cizim text.k{fill:#e9e9e6}
 /* nesiller: yana kayan küçük kartlar */
 .nesil-serit{display:flex;gap:10px;margin:14px calc(var(--ic) * -1) 0;padding:2px var(--ic) 4px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;
  overscroll-behavior-x:contain;touch-action:pan-x;scrollbar-width:none}
@@ -178,6 +184,8 @@ button:focus{outline:none}button:focus-visible{outline:2px solid var(--yazi);out
 .mini i{aspect-ratio:1;border-radius:50%;background:#26282e}
 .mini i.yan{background:var(--r);box-shadow:0 0 5px var(--r),0 0 14px color-mix(in srgb,var(--r) 55%,transparent)}
 .cubuk i.yan{background:var(--r);box-shadow:0 0 6px var(--r),0 0 22px color-mix(in srgb,var(--r) 60%,transparent)}
+/* bakım açıkken çubuk, kutudaki gibi saniyede bir mora döner (alttaki durumla dönüşümlü) */
+.cubuk[data-bakim-yan] i{background:var(--mor)!important;box-shadow:0 0 6px var(--mor),0 0 22px color-mix(in srgb,var(--mor) 60%,transparent)!important;animation:none!important}
 .cubuk[data-desen=nefes] i{animation:nefes 2.2s ease-in-out infinite}
 .cubuk[data-desen=nefes-yavas] i{animation:nefes 3.6s ease-in-out infinite}
 .cubuk[data-desen=donusum] i{animation:donusum 1.6s steps(1,end) infinite}
@@ -205,6 +213,13 @@ button:focus{outline:none}button:focus-visible{outline:2px solid var(--yazi);out
   <div class="cubuk" id="cubuk" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
   <p class="durum-baslik" id="durum-baslik" data-t="okunuyor"></p>
   <p class="durum-metin" id="durum-metin" data-t="okunuyorMetin"></p>
+ </section>
+
+ <section class="cam" id="disk-sorun" aria-labelledby="b-sorun" hidden>
+  <h2 id="b-sorun" data-t="diskDenetle"></h2>
+  <p class="sorun-neden" id="sorun-neden"></p>
+  <div class="pin-cizim" id="pin-cizim"></div>
+  <ol class="adimlar" id="sorun-adim"></ol>
  </section>
 
  <section class="cam" aria-labelledby="b-olcu">
@@ -286,7 +301,10 @@ const METIN={
   kutu:"Kutu",saat:"Saat",saatAyar:"Saati telefondan ayarla",saatKaynak:{ntp:"Ağ saati",rtc:"Pil saati",none:"Güvenilmez"},sonGece:"Son gece",disk:"Disk",kart:"Kart",baglanti:"Bağlantı",acikKalma:"Açık kalma",nesiller:"Nesiller",
   nesilYok:"Henüz nesil yok. İlk yedek, eşleşmeden sonraki gece çekilir.",islemler:"İşlemler",calistir:"Şimdi çalıştır",ozSinama:"Öz sınama",
   eslesme:"Sunucuyla eşleş",kapat:"Düzgün kapat",islemNot:"Her işlem kâğıttaki 12 haneli işlem kodunu ister. Üç yanlış denemeden sonra kod bir süre kilitlenir.",
-  isikAnlami:"Işığın anlamı",seritEtiket:"Işık durumları; yana kaydır",yedekYok:"Henüz yedek yok",diskYok:"Disk görünmüyor",saglikli:"sağlıklı",sorunlu:"sorunlu",
+  isikAnlami:"Işığın anlamı",seritEtiket:"Işık durumları; yana kaydır",yedekYok:"Henüz yedek yok",diskYok:"Disk görünmüyor",diskDenetle:"Diski denetle",modelYok:"model okunamıyor",
+  sorun:{missing:"Disk USB'de görünmüyor.",slow:"Disk USB 1.1 hızında bağlı (%s Mbit/s); 480 olmalı.",drops:"Disk bu açılıştan beri %s kez USB'den koptu.",error:"Son çalıştırmada diske ulaşılamadı."},
+  sorunAdim:["Disk tellerinin lehimlerine bak: 13 pinli başlıkta 1 (5 V), 2 (GND), 3 (D−), 4 (D+); 26 pinli başlıkta 4 (5 V ek) ve 9 (GND ek).","D− ile D+ kısa olsun (10 cm altı) ve birbirine sarılı dursun; uzun ya da ayrık teller bağlantıyı yavaşlatır, diski düşürür.","Köprünün 5 V pedinde gerilimi ölç: 4,75 V'un altına inmemeli. İnerse adaptörü ve 5 V tellerini denetle.","Düzelttikten sonra kutuyu kapat, gücü çekip yeniden tak. Bağlantı 480 Mbit/s görünmeli; sonra “Şimdi çalıştır”."],
+  pin13:"13 pinli başlık",pin26:"26 pinli başlık",pinEk:"ek",saglikli:"sağlıklı",sorunlu:"sorunlu",
   ulasilamiyor:"Kutuya ulaşılamıyor",ulasilamiyorMetin:"Sayfa kutudan yanıt alamadı; birkaç saniye sonra yeniden dener.",gun:"gün",sa:"sa",dk:"dk",
   eslesmemis:["Eşleşmemiş","Kutu bir sunucuya bağlı değil; gece işi çalışmaz."],
   surum:"Yazılım",kapatEtiket:"Kapat",eslesBaslik:"Sunucuyla eşleş",eslesMetin:"Sunucunun verdiği tek kullanımlık belirteci okut ya da yapıştır. Belirteç 10 dakika geçerli, tek denemelik.",
@@ -299,7 +317,10 @@ const METIN={
   kutu:"Box",saat:"Clock",saatAyar:"Set the clock from this phone",saatKaynak:{ntp:"Network time",rtc:"Battery clock",none:"Not trusted"},sonGece:"Last night",disk:"Disk",kart:"Board",baglanti:"Link",acikKalma:"Uptime",nesiller:"Generations",
   nesilYok:"No generations yet. The first backup is pulled the night after pairing.",islemler:"Actions",calistir:"Run now",ozSinama:"Self-test",
   eslesme:"Pair with server",kapat:"Shut down cleanly",islemNot:"Every action asks for the 12-digit operation code on your paper. After three wrong tries the code locks for a while.",
-  isikAnlami:"What the light means",seritEtiket:"Light states; scroll sideways",yedekYok:"No backup yet",diskYok:"No disk detected",saglikli:"healthy",sorunlu:"failing",
+  isikAnlami:"What the light means",seritEtiket:"Light states; scroll sideways",yedekYok:"No backup yet",diskYok:"No disk detected",diskDenetle:"Check the disk",modelYok:"model unreadable",
+  sorun:{missing:"No disk on USB.",slow:"The disk is linked at USB 1.1 speed (%s Mbit/s); it should be 480.",drops:"The disk dropped off USB %s times since this boot.",error:"The last run could not reach the disk."},
+  sorunAdim:["Check the disk wires' solder joints: pins 1 (5 V), 2 (GND), 3 (D−), 4 (D+) on the 13-pin header; pins 4 (extra 5 V) and 9 (extra GND) on the 26-pin header.","Keep D− and D+ short (under 10 cm) and twisted together; long or loose wires slow the link and drop the disk.","Measure 5 V at the bridge's pad: it must not fall below 4.75 V. If it does, check the adapter and the 5 V wires.","After the fix, shut the box down, unplug and plug it back in. The link should read 480 Mbit/s; then “Run now”."],
+  pin13:"13-pin header",pin26:"26-pin header",pinEk:"extra",saglikli:"healthy",sorunlu:"failing",
   ulasilamiyor:"Box unreachable",ulasilamiyorMetin:"The page got no answer from the box; it will try again in a few seconds.",gun:"d",sa:"h",dk:"min",
   eslesmemis:["Not paired","The box is not linked to a server; the nightly job does not run."],
   surum:"Software",kapatEtiket:"Close",eslesBaslik:"Pair with server",eslesMetin:"Scan or paste the single-use token the server gave you. It is valid for 10 minutes and allows one attempt.",
@@ -333,6 +354,22 @@ function derece(v){return v==null?"—":`${v}<small> °C</small>`}
 function nesilTarih(id){const t=new Date(`${id.slice(0,10)}T${id.slice(11,13)}:${id.slice(14,16)}:00Z`);
  return t.toLocaleString(DIL==="tr"?"tr-TR":"en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
 function boyut(b){return b>=1e12?`${(b/1e12).toFixed(2)} TB`:b>=1e9?`${(b/1e9).toFixed(1)} GB`:`${Math.round(b/1e6)} MB`}
+function yuzde(u,t){const n=u*100/t,y=n<1?n.toLocaleString(DIL==="tr"?"tr-TR":"en-GB",{maximumFractionDigits:1}):String(Math.round(n));return DIL==="tr"?`%${y}`:`${y}%`}
+// disk telleri: 13 pinli başlıkta 1-4, 26 pinli başlıkta 4 ve 9 (tel renkleriyle); diğer pinler sönük
+function pinCizim(){const R={k:"#e5484d",s:"#9aa0a8",b:"#f6f6f2",y:"#35c46a"},x=c=>22+c*21,o=[];
+ const pin=(cx,cy,ilk,renk)=>{const f=renk||"#2c2f36",g=renk?` style="filter:drop-shadow(0 0 4px ${renk})"`:"";
+  o.push(ilk?`<rect x="${cx-5}" y="${cy-5}" width="10" height="10" rx="2" fill="${f}"${g}/>`:`<circle cx="${cx}" cy="${cy}" r="5" fill="${f}"${g}/>`)};
+ const yaz=(t,cx,cy,k)=>o.push(`<text x="${cx}" y="${cy}" text-anchor="middle"${k?' class="k"':""}>${t}</text>`);
+ o.push(`<text x="12" y="12">${METIN.pin13}</text>`);
+ const ust=[[R.k,"5V"],[R.s,"GND"],[R.b,"D−"],[R.y,"D+"]];
+ for(let i=0;i<13;i++){pin(x(i),30,i===0,ust[i]?.[0]);if(ust[i])yaz(ust[i][1],x(i),50,1)}
+ o.push(`<text x="12" y="80">${METIN.pin26}</text>`);
+ const alt={4:[R.k,"5V"],9:[R.s,"GND"]};
+ for(let n=1;n<=26;n++){const c=(n-1)>>1,r=(n-1)&1,p=alt[n];pin(x(c),96+r*20,n===1,p?.[0]);if(p)yaz(`${n} · ${p[1]} ${METIN.pinEk}`,x(c),r?136:88,1)}
+ return `<svg viewBox="0 0 300 144" role="img" aria-label="${METIN.pin13}, ${METIN.pin26}">${o.join("")}</svg>`}
+let bakimSaat=null;
+function bakimSur(acik){const c=$("cubuk");if(!acik){clearInterval(bakimSaat);bakimSaat=null;c.removeAttribute("data-bakim-yan");return}
+ if(!bakimSaat)bakimSaat=setInterval(()=>c.toggleAttribute("data-bakim-yan",Math.floor(Date.now()/1000)%2===1),250)}
 let sonDurum=null;
 function saatYaz(t,tz){try{return new Intl.DateTimeFormat(DIL==="tr"?"tr-TR":"en-GB",{hour:"2-digit",minute:"2-digit",timeZone:tz}).format(t*1000)}
  catch(e){return new Intl.DateTimeFormat(DIL==="tr"?"tr-TR":"en-GB",{hour:"2-digit",minute:"2-digit"}).format(t*1000)}}
@@ -341,11 +378,17 @@ async function oku(){
   $("kimlik").textContent=v.id;
   $("bakim").toggleAttribute("data-acik",!!v.maint);$("bakim-metin").textContent=v.maint?METIN.bakimAcik:METIN.bakimKapali;
   const durum=v.code_locked_s>0&&!["suspect","fault"].includes(v.light)?"locked":v.light;
-  cubukCiz($("cubuk"),durum);
+  // RGBW çubukta beyazı ayrı sıcak beyaz LED yakar (sarımsı); sayfa da o tonu gösterir ki ikisi aynı görünsün
+  document.documentElement.style.setProperty("--beyaz",v.light_kind==="rgbw"?"#ffd79c":"#f6f6f2");
+  cubukCiz($("cubuk"),durum);bakimSur(!!v.maint);
   const [baslik,metin]=METIN.durumlar[durum]||METIN.durumlar.unpaired;$("durum-baslik").textContent=baslik;$("durum-metin").textContent=metin;
   $("son-gece").textContent=v.last_sound?nesilTarih(v.last_sound):METIN.yedekYok;
   const d=v.disk||{};
-  $("disk").textContent=d.model?[d.model,d.size,d.health==null?null:d.health?METIN.saglikli:METIN.sorunlu,v.usage?`${Math.round(v.usage.used*100/v.usage.total)}%`:null].filter(Boolean).join(" · "):METIN.diskYok;
+  $("disk").textContent=d.present||d.model?[d.model||METIN.modelYok,d.size||(d.size_b?boyut(d.size_b):null),d.health==null?null:d.health?METIN.saglikli:METIN.sorunlu,v.usage?yuzde(v.usage.used,v.usage.total):null].filter(Boolean).join(" · "):METIN.diskYok;
+  const sr=v.disk_issue;$("disk-sorun").hidden=!sr;
+  if(sr){$("sorun-neden").textContent=(METIN.sorun[sr.kind]||"").replace("%s",sr.kind==="slow"?sr.mbit:sr.drops);
+   if(!$("pin-cizim").firstChild)$("pin-cizim").innerHTML=pinCizim();
+   if(!$("sorun-adim").firstChild)$("sorun-adim").replaceChildren(...METIN.sorunAdim.map(t=>{const li=document.createElement("li");li.textContent=t;return li}))}
   $("disk-c").innerHTML=derece(d.temp);$("kart-c").innerHTML=derece(v.board_temp);
   $("disk-hiz").innerHTML=d.link?`${parseInt(d.link)}<small> Mbit/s</small>`:"—";
   $("acik").textContent=sure(v.uptime_s);
@@ -369,7 +412,7 @@ const DURUMLAR=[
  [["Sarı","Uyarı: yedek alındı ama bakılmalı"],["Yellow","Warning: backup taken, needs a look"],"warning","sari",null,"sabit",[]],
  [["Turuncu","Arıza: yedek alınamadı"],["Orange","Fault: the backup could not be taken"],"fault","turuncu",null,"sabit",[]],
  [["Kırmızı","Şüphe. Başka hiçbir durumda yanmaz"],["Red","Suspicion. Never lit for anything else"],"suspect","kirmizi",null,"nefes-yavas",[]],
- [["Mor","Bakım erişimi açık; alttaki durumla dönüşümlü"],["Purple","Maintenance access on; alternates with the state beneath"],"maint","mor","yesil","donusum",[]],
+ [["Mor ve beyaz","Bakım açık, kutu hazır. Mor her saniye alttaki durumla dönüşür: mor-mavi çekiliyor, mor-turuncu arıza."],["Purple and white","Maintenance on, the box is ready. Purple alternates every second with the state beneath: purple-blue pulling, purple-orange fault."],"maint","mor","beyaz","donusum",[]],
  [["Kırmızı-beyaz","İşlem kodu kilitli"],["Red and white","Operation code locked"],"locked","kirmizi","beyaz","donusum",[]],
 ];
 (function seridiKur(){

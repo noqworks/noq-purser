@@ -76,7 +76,8 @@ def hardware():
     rc, out = run("smartctl", "-d", "sat", "-i", "-H", "-A", "/dev/sda", timeout=15)
     for line in out.splitlines():
         if line.startswith("Device Model:"):
-            d["model"] = line.split(":", 1)[1].strip()
+            v = line.split(":", 1)[1].strip()
+            d["model"] = None if v.startswith("[") else v   # a bridge that cannot pass ATA IDENTIFY says "[No Information Found]"
         elif line.startswith("User Capacity:") and "[" in line:
             d["size"] = line.split("[")[1].rstrip("]").strip()
         elif "overall-health" in line:
@@ -90,6 +91,15 @@ def hardware():
     for line in out.splitlines():
         if "Mass Storage" in line:
             d["link"] = line.rsplit(",", 1)[-1].strip()
+    # the disk is there even when SMART cannot read it; size from the kernel
+    d["present"] = os.path.exists("/sys/class/block/sda")
+    try:
+        d["size_b"] = int(read("/sys/class/block/sda/size", "0")) * 512 or None
+    except ValueError:
+        d["size_b"] = None
+    # times the disk dropped off USB since this boot (kernel log)
+    rc, out = run("journalctl", "-k", "-b", "0", "-o", "cat", "--no-pager", timeout=10)
+    d["drops"] = sum(1 for line in out.splitlines() if "USB disconnect" in line) if rc == 0 else 0
     try:
         board = round(int(read("/sys/class/thermal/thermal_zone0/temp", "0")) / 1000)
     except ValueError:
@@ -121,7 +131,7 @@ def status():
     s = {
         "id": box_id(), "version": version(), "lang": c.get("LANG_UI", "en"),
         "paired": bool(c.get("SERVER")), "maint": os.path.exists(os.path.join(RUN_DIR, "maint")),
-        "light": light[0], "light_arg": light[1] if len(light) > 1 else "",
+        "light": light[0], "light_arg": light[1] if len(light) > 1 else "", "light_kind": c.get("LIGHT_KIND", "rgb"),
         "last_sound": read(os.path.join(STATE, "son-saglam")) or None,
         "last_run": {k: last_run.get(k) for k in ("result", "id", "at")} if last_run else None,
         "suspect": read(os.path.join(STATE, "supheli-var")) or None,
@@ -131,6 +141,15 @@ def status():
         "generations": generations(), "uptime_s": up,
     }
     s.update(hardware())
+    # what the box page shows under "Check the disk": missing, a slow link (USB 1.1), drops, or the last run could not reach it
+    d = s["disk"]
+    try:
+        mbit = int(re.sub(r"\D", "", d.get("link") or "") or 0)
+    except ValueError:
+        mbit = 0
+    kind = ("missing" if not d.get("present") else "slow" if mbit and mbit < 480 else "drops" if d.get("drops")
+            else "error" if (last_run or {}).get("result") == "disk_error" else None)
+    s["disk_issue"] = {"kind": kind, "drops": d.get("drops", 0), "mbit": mbit} if kind else None
     s["clock"] = dict(clock_info(), now=int(time.time()), tz=(read("/etc/timezone").strip() or "UTC"))
     return s
 

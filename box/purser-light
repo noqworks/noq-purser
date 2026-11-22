@@ -156,7 +156,7 @@ def main():
         if preview:
             shown = preview
         if shown == "maint":                 # preview of the maintenance pattern alone
-            px = [COLOURS["purple"]] * COUNT if int(t) % 2 == 1 else frame("done", "", t)
+            px = [COLOURS["purple"]] * COUNT if int(t) % 2 == 1 else frame("ready", "", t)
         else:
             px = frame(shown, arg, t)
         if maint and not preview and shown != "test" and int(t) % 2 == 1:
