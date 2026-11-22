@@ -44,7 +44,7 @@ edge. Fix it entirely at the stick; nothing changes on the Orange Pi (same heade
 - a **330 Ω resistor in series in the data line, at the stick's DIN pad**;
 - GND stays common with the Orange Pi; nothing goes in the GND line.
 
-A 74AHCT125 level shifter at the stick's DIN, powered from the stick's 5 V, is the alternative to the diode. Until the stick has these parts the light
+Until the stick has these parts the light
 software draws steady states (no continuous breathing), because every update is a chance for a garbled frame.
 
 ## Assembly
@@ -98,7 +98,7 @@ hattını 0,7 × 5 V = 3,5 V eşiğiyle okur; Orange Pi bu hattı 3,3 V ile sür
 - **veri hattına seri 330 Ω direnç**, çubuğun DIN girişinde;
 - GND Orange Pi ile ortak kalır; GND hattına bir şey konmaz.
 
-Diyot yerine çubuğun DIN girişine, çubuğun 5 V'undan beslenen 74AHCT125 seviye çevirici de olur. Çubuğa bu parçalar eklenene kadar ışık yazılımı durumları
+Çubuğa bu parçalar eklenene kadar ışık yazılımı durumları
 sabit çizer (sürekli nefes alma yok), çünkü her güncelleme bozuk bir kare için bir fırsattır.
 
 ### Montaj
