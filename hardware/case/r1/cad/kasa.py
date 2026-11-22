@@ -57,13 +57,15 @@ body = outer.cut(inner)
 # ---- Orange Pi Zero 3 front connectors (hand-measured CAD model, MotorBottle/OrangePi-Zero3-CAD-3D-Model, < 0.3 mm):
 #      USB-C and USB-A stand UPRIGHT. (x0, x1) from the board centre, (z0, z1) above the board's top face, nose past the board edge.
 top_pcb = zb + OPI[2]
-PORTS = {'usbc': ((-9.45, -6.25), (0.70, 9.62), 0.7), 'usba': ((-1.5, 4.3), (0.5, 13.7), 1.1), 'rj45': ((6.5, 21.5), (0.0, 13.5), 0.6)}
+PORTS = {'hdmi': ((-21.3, -14.8), (0.18, 3.12), 0.75), 'usbc': ((-9.45, -6.25), (0.70, 9.62), 0.7), 'usba': ((-1.5, 4.3), (0.5, 13.7), 1.1), 'rj45': ((6.5, 21.5), (0.0, 13.5), 0.6)}
 # openings: USB-C with room for the plug's overmould (about 7 x 12 upright), USB-A and RJ45 with 0.4 mm around.
 # They run down to the seam: the connector noses reach into the wall, so the shell must slide down over them.
-SLOTS = {'usbc': (-11.4, -4.3, 11.4), 'usba': (-1.9, 4.7, 14.1), 'rj45': (6.1, 21.9, 13.9)}
-def slot(x0, x1, top):
+# USB-C: a stadium (rounded top) 9.4 wide, for an upright plug overmould up to about 9 x 12.5 mm; 1.25 mm of wall to USB-A.
+SLOTS = {'usbc': (-12.55, -3.15, 11.96), 'usba': (-1.9, 4.7, 14.1), 'rj45': (6.1, 21.9, 13.9)}
+ROUND = {'usbc': 4.69}
+def slot(x0, x1, top, r=0.8):
     return (cq.Workplane('XZ').center(OPI_C[0] + (x0 + x1) / 2, (SPLIT - 2 + top_pcb + top) / 2).rect(x1 - x0, top_pcb + top - SPLIT + 2)
-            .extrude(-(WALL + 1.5)).edges('|Y').fillet(0.8).translate((0, -0.5, 0)))
+            .extrude(-(WALL + 1.5)).edges('|Y').fillet(r).translate((0, -0.5, 0)))
 
 # ---- maintenance switch, left wall: bushing hole, ring seat (1 mm deep: the ring's thread reaches the bushing) ----
 SW_Y, SW_Z = WALL + 20.0, 14.6
@@ -77,7 +79,12 @@ big = 400
 tray = body.intersect(cq.Workplane().box(big, big, SPLIT, centered=(True, True, False)).translate((OX / 2, OY / 2, 0)))
 shell = body.intersect(cq.Workplane().box(big, big, OZ, centered=(True, True, False)).translate((OX / 2, OY / 2, SPLIT)))
 for _n, (_a, _b, _t) in SLOTS.items():
-    shell = shell.cut(slot(_a, _b, _t))
+    shell = shell.cut(slot(_a, _b, _t, ROUND.get(_n, 0.8)))
+# micro HDMI stays closed (not used), but its nose reaches 0.25 mm past the inner face of the front wall:
+# a 1 mm deep relief inside the wall, open to the seam so the shell slides down over it
+(_h0, _h1), (_, _hz), _ = PORTS['hdmi']
+shell = shell.cut(cq.Workplane().box(_h1 - _h0 + 1.4, 1.1, top_pcb + _hz + 0.6 - (SPLIT - 1), centered=False)
+                  .translate((OPI_C[0] + _h0 - 0.7, WALL - 1.0, SPLIT - 1)))
 
 # tray lip (goes up inside the shell), cut away behind the Orange Pi's ports
 lo = rrect(IN_X - 2 * CLR, IN_Y - 2 * CLR, R_PLAN - WALL - CLR, SPLIT, LIP_H, OX / 2, OY / 2)
