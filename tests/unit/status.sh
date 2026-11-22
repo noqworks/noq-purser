@@ -47,4 +47,10 @@ ok "clock fails" grep -q 'FAIL  clock: not synchronised' "$LOGDIR/selftest-bad.t
 echo 480 > /run/sim/sys/bus/usb/devices/1-1/speed; rm -f /run/sim/smart-rc /run/sim/chrony
 ok "self-test leaves the disk locked" locked
 unconf IMAGE_RELEASE
+# the hourly tick must not draw over a running job's light (the job holds the lock)
+$P light pulling
+( flock 9; $P tick >/dev/null 2>&1 ) 9>/run/purser.lock
+eq "tick leaves a running job's light alone" pulling "$(tr -d " " < /run/purser/light)"
+$P tick >/dev/null 2>&1
+ok "tick without a job redraws the light" not grep -q "^pulling" /run/purser/light
 done_testing

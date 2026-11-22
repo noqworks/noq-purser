@@ -41,6 +41,11 @@ led_update() {
 }
 systemd_up() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 
+# A nightly job or a first fill holds LOCK_FILE for its whole run.
+job_running() {
+  ! { flock -n 9; } 9>"$LOCK_FILE"
+}
+
 tick() {
   notify_flush || true
   if systemd_up && [ "$(kv_get "$ST_SETUP" state)" = "done" ] && ! systemctl -q is-enabled purser.timer 2>/dev/null; then
@@ -62,7 +67,7 @@ tick() {
     notify code_missing default N_CODE_MISSING
   fi
   disk_left_open
-  led_update
+  job_running || led_update   # a running job owns the light (pulling / checking)
 }
 
 # Outside a job and outside a "disk-on" session the disk is closed. If it is not, close it.
