@@ -8,7 +8,7 @@ from shapely.ops import unary_union
 OUT = sys.argv[1] if len(sys.argv) > 1 else '.'
 
 # ---- given measurements (OLCULER.md) ----
-OPI = (55.0, 50.0, 1.6); OPI_HOLES = (49.5, 45.0)
+OPI = (55.0, 50.0, 1.2); OPI_HOLES = (49.5, 45.0)
 RTC = (38.0, 21.7, 1.6)
 SSD = (59.0, 59.6)                      # SSD + bridge mated footprint
 # NeoPixel 8 stick — Umut's own stick (clones differ from Adafruit's layout, so his measurements rule):
@@ -54,19 +54,16 @@ inner = (cq.Workplane().box(IN_X, IN_Y, IN_Z, centered=False).edges('|Z').fillet
          .faces('>Z').edges().fillet(R_EDGE - TOP).translate((WALL, WALL, FLOOR)))
 body = outer.cut(inner)
 
-# ---- front openings (Orange Pi ports; positions from the board model, relative to board centre) ----
+# ---- Orange Pi Zero 3 front connectors (hand-measured CAD model, MotorBottle/OrangePi-Zero3-CAD-3D-Model, < 0.3 mm):
+#      USB-C and USB-A stand UPRIGHT. (x0, x1) from the board centre, (z0, z1) above the board's top face, nose past the board edge.
 top_pcb = zb + OPI[2]
-def port_hole(dx, w, h, mw, mh, r):
-    cx = OPI_C[0] + dx; cz = top_pcb + h / 2
-    return (cq.Workplane('XZ').center(cx, cz).rect(w + mw, h + mh).extrude(-(WALL + 1.5))
-            .edges('|Y').fillet(r).translate((0, -0.5, 0)))
-# one rounded bay for USB-C, USB-A and RJ45: the plugs' overmoulds overlap, so separate holes would merge anyway
-bx0, bx1 = OPI_C[0] - 7.85 - 6.6, OPI_C[0] + 14.0 + 8.2
-bz0, bz1 = top_pcb - 1.9, top_pcb + 13.2 + 1.0
-holes = [cq.Workplane('XZ').center((bx0 + bx1) / 2, (bz0 + bz1) / 2).rect(bx1 - bx0, bz1 - bz0).extrude(-(WALL + 1.5))
-         .edges('|Y').fillet(2.5).translate((0, -0.5, 0))]
-for h in holes:
-    body = body.cut(h)
+PORTS = {'usbc': ((-9.45, -6.25), (0.70, 9.62), 0.7), 'usba': ((-1.5, 4.3), (0.5, 13.7), 1.1), 'rj45': ((6.5, 21.5), (0.0, 13.5), 0.6)}
+# openings: USB-C with room for the plug's overmould (about 7 x 12 upright), USB-A and RJ45 with 0.4 mm around.
+# They run down to the seam: the connector noses reach into the wall, so the shell must slide down over them.
+SLOTS = {'usbc': (-11.4, -4.3, 11.4), 'usba': (-1.9, 4.7, 14.1), 'rj45': (6.1, 21.9, 13.9)}
+def slot(x0, x1, top):
+    return (cq.Workplane('XZ').center(OPI_C[0] + (x0 + x1) / 2, (SPLIT - 2 + top_pcb + top) / 2).rect(x1 - x0, top_pcb + top - SPLIT + 2)
+            .extrude(-(WALL + 1.5)).edges('|Y').fillet(0.8).translate((0, -0.5, 0)))
 
 # ---- maintenance switch, left wall: bushing hole, ring seat (1 mm deep: the ring's thread reaches the bushing) ----
 SW_Y, SW_Z = WALL + 20.0, 14.6
@@ -79,6 +76,8 @@ body = body.cut(sw_hole).cut(seat)
 big = 400
 tray = body.intersect(cq.Workplane().box(big, big, SPLIT, centered=(True, True, False)).translate((OX / 2, OY / 2, 0)))
 shell = body.intersect(cq.Workplane().box(big, big, OZ, centered=(True, True, False)).translate((OX / 2, OY / 2, SPLIT)))
+for _n, (_a, _b, _t) in SLOTS.items():
+    shell = shell.cut(slot(_a, _b, _t))
 
 # tray lip (goes up inside the shell), cut away behind the Orange Pi's ports
 lo = rrect(IN_X - 2 * CLR, IN_Y - 2 * CLR, R_PLAN - WALL - CLR, SPLIT, LIP_H, OX / 2, OY / 2)
@@ -189,16 +188,18 @@ ring = ring.cut(tooth.intersect(cq.Workplane().circle(4).extrude(RH - 5.0 + 0.01
 # placed: bottom on the 1 mm seat, axis out of the left wall
 ring_placed = ring.rotate((0, 0, 0), (0, 1, 0), -90).translate((SEAT, SW_Y, SW_Z))
 
-# ---- USB-A plug: a face that fills the USB-A part of the port bay, held by a blade in the socket ----
-ua_x0, ua_x1 = OPI_C[0] + 1.4 - 3.0, OPI_C[0] + 1.4 + 4.7          # clear of the USB-C plug's overmould and the RJ45
-ua_z0, ua_z1 = top_pcb - 0.2, top_pcb + 6.6 + 0.4
-plug = cq.Workplane().box(ua_x1 - ua_x0, 1.9, ua_z1 - ua_z0, centered=False).translate((ua_x0, 0.0, ua_z0))
-plug = plug.edges('|Y').fillet(0.6)
-blade = cq.Workplane().box(8.2, 5.5, 1.5, centered=(True, False, True)).translate((OPI_C[0] + 1.4, 1.9, top_pcb + 6.6 * 0.33))
-bumps = [cq.Workplane('YZ').circle(0.35).extrude(2.4).translate((OPI_C[0] + 1.4 + dx - 1.2, 1.9 + 3.5, top_pcb + 6.6 * 0.33 + 0.75)) for dx in (-2.5, 2.5)]   # friction ridges
-plug = plug.union(blade)
-for b_ in bumps:
-    plug = plug.union(b_)
+# ---- USB-A plug: closes the upright USB-A opening. A thin flange outside, an insert that presses into the opening
+#      (the socket's nose reaches 0.6 mm into the wall, so the insert is 1.7 deep); nothing goes into the socket itself.
+_a, _b, _t = SLOTS['usba']
+pz1 = top_pcb + _t
+flange = cq.Workplane().box(_b - _a + 1.6, 0.8, pz1 + 0.8 - SPLIT, centered=False).translate((OPI_C[0] + _a - 0.8, -0.8, SPLIT))
+flange = flange.edges('|Y').fillet(1.2)
+insert = cq.Workplane().box(_b - _a - 0.2, 1.7, pz1 - 0.1 - (SPLIT + 0.1), centered=False).translate((OPI_C[0] + _a + 0.1, 0.0, SPLIT + 0.1))
+plug = flange.union(insert)
+for _x in (OPI_C[0] + _a + 0.1, OPI_C[0] + _b - 0.1):          # friction ridges on both sides
+    for _z in (SPLIT + 4.0, pz1 - 4.0):
+        plug = plug.union(cq.Workplane('XY').circle(0.28).extrude(3.0).rotate((0, 0, 0), (1, 0, 0), -90)
+                          .intersect(cq.Workplane().box(2, 1.5, 2, centered=(True, False, True)).translate((0, 0.1, 0))).translate((_x, 0, _z)))
 # the shell's front wall runs from y = 0 to WALL; the plug face sits flush with the outside
 plug_placed = plug.translate((0, 0, 0))
 # ---- export ----
@@ -206,7 +207,7 @@ plug_placed = plug.translate((0, 0, 0))
 def on_bed(p):
     bb = p.val().BoundingBox(); return p.translate((-bb.xmin, -bb.ymin, -bb.zmin))
 shell_p = on_bed(shell.rotate((0, 0, 0), (1, 0, 0), 180))
-plug_p = on_bed(plug.rotate((0, 0, 0), (1, 0, 0), 90))
+plug_p = on_bed(plug.rotate((0, 0, 0), (1, 0, 0), -90))
 for name, part in (('purser-kasa-taban', on_bed(tray)), ('purser-kasa-kapak', shell_p), ('purser-anahtar-halkasi', on_bed(ring)), ('purser-usb-tapasi', plug_p)):
     cq.exporters.export(part, f'{OUT}/{name}.step')
     cq.exporters.export(part, f'{OUT}/{name}.stl', tolerance=0.02, angularTolerance=0.1)
@@ -216,9 +217,8 @@ cq.exporters.export(plug_placed, f'{OUT}/_tapa-yerinde.stl', tolerance=0.02, ang
 # ghost parts for the render and the fit check
 ghosts = {
  'opi': cq.Workplane().box(*OPI, centered=(True, True, False)).translate((OPI_C[0], OPI_C[1], zb)),
- 'rj45': cq.Workplane().box(15, 21.8, 13.2, centered=(True, False, False)).translate((OPI_C[0] + 14, OPI_C[1] - 26, top_pcb)),
- 'usba': cq.Workplane().box(9.8, 12, 6.6, centered=(True, False, False)).translate((OPI_C[0] + 1.4, OPI_C[1] - 26, top_pcb)),
- 'usbc': cq.Workplane().box(8.6, 7.2, 3.2, centered=(True, False, False)).translate((OPI_C[0] - 7.85, OPI_C[1] - 26, top_pcb)),
+ **{n: cq.Workplane().box(x1 - x0, 12, z1 - z0, centered=False).translate((OPI_C[0] + x0, OPI_C[1] - 25 - nose, top_pcb + z0))
+    for n, ((x0, x1), (z0, z1), nose) in PORTS.items()},
  'rtc': cq.Workplane().box(RTC[0], RTC[1], 10.6 - STAND + 0.0, centered=False).translate((rx, ry, zb)),
  'ssd': cq.Workplane().box(SSD[0], SSD[1], 12, centered=False).translate((sx0, sy0, z0 + 0.2)),
  'stick': cq.Workplane().box(STICK[0], STICK[1], STICK[2], centered=(True, True, False)).translate((SC[0], STICK_C, z_skin - STICK_GAP - STICK[2])),
