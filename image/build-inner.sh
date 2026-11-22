@@ -141,13 +141,38 @@ rm -f "$R"/etc/ssh/ssh_host_*                         # Armbian's first run make
 sed -i 's/^root:[^:]*:/root:*:/' "$R/etc/shadow"      # no root password; there is no login anyway
 rm -f "$R/root/.not_logged_in_yet" "$R/root/.bash_history"
 sed -i 's/^console=.*/console=serial/' "$R/boot/armbianEnv.txt"
-# the light stick: SPI1 MOSI (header pin 19) as /dev/spidev1.0
-if grep -q '^overlays=' "$R/boot/armbianEnv.txt"; then
-  grep -q '^overlays=.*spidev1_0' "$R/boot/armbianEnv.txt" || sed -i 's/^overlays=\(.*\)/overlays=\1 spidev1_0/' "$R/boot/armbianEnv.txt"
-else echo "overlays=spidev1_0 i2c3-ph" >> "$R/boot/armbianEnv.txt"; fi
-# I2C3 on header pins 3/5: the optional battery clock (DS3231)
-grep -q '^overlays=.*i2c3-ph' "$R/boot/armbianEnv.txt" || sed -i 's/^overlays=\(.*\)/overlays=\1 i2c3-ph/' "$R/boot/armbianEnv.txt"
-[ -e "$R/boot/dtb/allwinner/overlay/sun50i-h616-spidev1_0.dtbo" ] || { echo "spidev1_0 overlay missing" >&2; exit 1; }
+# the light stick: SPI1 MOSI (header pin 19). The board's device tree gives spi1 no pin setting, and
+# Armbian's spidev1_0 would take PH5 (pin 3) as chip select 0, which is I2C3 SDA for the battery
+# clock: our own overlay muxes MOSI/MISO/CLK and chip select 1 (PH9, pin 26, unused) -> /dev/spidev1.1
+install -d "$R/boot/overlay-user"
+cat > /tmp/purser-spi1.dts <<'DTS'
+/dts-v1/;
+/plugin/;
+/ {
+	compatible = "allwinner,sun50i-h616";
+	fragment@0 {
+		target = <&spi1>;
+		__overlay__ {
+			status = "okay";
+			pinctrl-names = "default";
+			pinctrl-0 = <&spi1_pins>, <&spi1_cs1_pin>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			spidev@1 {
+				compatible = "rohm,dh2228fv";
+				status = "okay";
+				reg = <1>;
+				spi-max-frequency = <10000000>;
+			};
+		};
+	};
+};
+DTS
+dtc -q -@ -I dts -O dtb -o "$R/boot/overlay-user/purser-spi1.dtbo" /tmp/purser-spi1.dts
+rm -f /tmp/purser-spi1.dts
+sed -i 's/^overlays=.*/overlays=i2c3-ph/' "$R/boot/armbianEnv.txt"
+grep -q '^overlays=' "$R/boot/armbianEnv.txt" || echo 'overlays=i2c3-ph' >> "$R/boot/armbianEnv.txt"
+grep -q '^user_overlays=' "$R/boot/armbianEnv.txt" || echo 'user_overlays=purser-spi1' >> "$R/boot/armbianEnv.txt"
 [ -e "$R/boot/dtb/allwinner/overlay/sun50i-h616-i2c3-ph.dtbo" ] || { echo "i2c3-ph overlay missing" >&2; exit 1; }
 echo noq-purser > "$R/etc/hostname"
 sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tnoq-purser/' "$R/etc/hosts"

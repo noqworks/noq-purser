@@ -37,9 +37,9 @@ N_SMART_SECTORS|The disk reports %s reallocated and %s pending sectors.
 N_SCRUB_ERRORS|btrfs scrub found errors: %s
 N_SCAN_MISMATCH|Full scan: generation %s has %s files that do not match its list (disk damage?).
 N_BOX_READY|Box started: NOQ Purser %s, last generation %s.
-N_SETUP_WAITING|Setup is waiting at the serial console: %s
+N_SETUP_WAITING|Setup is waiting: %s (switch maintenance on and look at the box page).
 N_CODE_MISSING|No operation code is set; commands at the box are not possible until "setup-code" is run at the serial console. Backups continue.
-N_SELFTEST_FAILED|First boot self-test: %s failures (run "selftest" at the serial console).
+N_SELFTEST_FAILED|First boot self-test: %s failures (switch maintenance on, Self-test on the page).
 N_TEST|Test message.
 # --- reasons (suspect and warning codes) ---
 R_SERVER_CLEAN_NO|the server's own verification failed (clean=no)

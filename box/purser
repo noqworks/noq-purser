@@ -55,7 +55,8 @@ cmd_boot() {
 
 case ${1:-} in
   run)
-    if [ "${2:-}" = --first-fill ]; then
+    # the first backup has no time limit: until one generation is published, every run is a first fill
+    if [ "${2:-}" = --first-fill ] || [ ! -s "$ST_LAST_PUBLISHED" ]; then
       night_run first-fill
       if [ -s "$ST_LAST_PUBLISHED" ]; then
         setup_mark first_fill "done"
@@ -79,7 +80,7 @@ case ${1:-} in
   reset-code) cmd_reset_code ;;
   shell) cmd_shell ;;
   notify-test) notify test default N_TEST ;;
-  pair) cmd_pair "${2:-}" ;;
+  pair) cmd_pair "${2:-}" "${3:-}" ;;
   check-code) cmd_check_code ;;
   selftest-nocode) cmd_selftest ;;
   notify-maint) cmd_notify_maint "${2:-}" "${3:-}" ;;

@@ -52,6 +52,12 @@ if [ -z "$LISTEN" ]; then LISTEN=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 
 [[ $LISTEN =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "give --listen <IPv4 address the box connects to>" >&2; exit 2; }
 ip -4 -o addr show 2>/dev/null | grep -q " $LISTEN/" || { echo "$LISTEN is not an address of this server; give --listen <one of: $(ip -4 -o addr show scope global | awk '{ sub(/\/.*/, "", $4); printf "%s ", $4 }')>" >&2; exit 2; }
 echo "gate address: $LISTEN (the box connects here)"
+# the port must be free (another sshd, a tarpit, ...), unless it is our own gate
+if ss -Hltnp "sport = :$PORT" 2>/dev/null | grep -v '"sshd"' | grep -q .; then
+  if ! systemctl -q is-active purser-sshd 2>/dev/null; then
+    echo "port $PORT is already in use on this server ($(ss -Hltnp "sport = :$PORT" | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2)); give --port <a free port>" >&2; exit 2
+  fi
+fi
 [[ $PORT =~ ^[0-9]+$ ]] && [ "$PORT" -gt 0 ] && [ "$PORT" -lt 65536 ] || { echo "bad --port" >&2; exit 2; }
 [[ $TIMER_AT =~ ^[0-2][0-9]:[0-5][0-9]$ ]] || { echo "bad --timer (HH:MM)" >&2; exit 2; }
 [[ $BASE =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "bad --base" >&2; exit 2; }

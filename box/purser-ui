@@ -131,7 +131,7 @@ def status():
         "generations": generations(), "uptime_s": up,
     }
     s.update(hardware())
-    s["clock"] = clock_info()
+    s["clock"] = dict(clock_info(), now=int(time.time()), tz=(read("/etc/timezone").strip() or "UTC"))
     return s
 
 
@@ -233,7 +233,7 @@ class Page(http.server.BaseHTTPRequestHandler):
             token = str(data.get("token", "")).strip()
             if not re.fullmatch(r"purser-pair:[A-Za-z0-9_-]{40,4000}", token):
                 return self.send(400, {"error": "bad_token"})
-            rc, out = run(PURSER, "pair", token, timeout=90)
+            rc, out = run(PURSER, "pair", token, "--later", timeout=90)
             ms = data.get("now")
             if rc == 0 and isinstance(ms, (int, float)) and ms > 0:     # the phone's clock, once, if a battery clock waits for it
                 run(PURSER, "rtc-set", str(int(ms) // 1000), "--if-unset", timeout=30)

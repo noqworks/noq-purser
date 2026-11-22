@@ -37,9 +37,9 @@ N_SMART_SECTORS|Disk %s yeniden atanmış ve %s bekleyen sektör bildiriyor.
 N_SCRUB_ERRORS|btrfs scrub hata buldu: %s
 N_SCAN_MISMATCH|Tam tarama: %s neslinde listeyle tutmayan %s dosya var (disk bozulması?).
 N_BOX_READY|Kutu açıldı: NOQ Purser %s, son nesil %s.
-N_SETUP_WAITING|Kurulum seri konsolda bekliyor: %s
+N_SETUP_WAITING|Kurulum bekliyor: %s (bakım anahtarını açıp kutunun sayfasına bak).
 N_CODE_MISSING|İşlem kodu yok; seri konsolda "setup-code" çalıştırılana kadar kutunun başındaki komutlar kullanılamaz. Yedekler sürüyor.
-N_SELFTEST_FAILED|İlk açılış öz sınaması: %s hata (seri konsolda "selftest" çalıştır).
+N_SELFTEST_FAILED|İlk açılış öz sınaması: %s hata (bakım anahtarını aç, sayfada Öz sınama).
 N_TEST|Deneme mesajı.
 # --- nedenler (şüphe ve uyarı kodları) ---
 R_SERVER_CLEAN_NO|sunucunun kendi doğrulaması başarısız (clean=no)

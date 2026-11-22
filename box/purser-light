@@ -18,7 +18,7 @@ import fcntl, math, os, shlex, signal, struct, sys, time
 RUN_DIR = os.environ.get("RUN_DIR", "/run/purser")
 STATE = os.environ.get("STATE", "/var/lib/purser")
 CONF = os.environ.get("PURSER_CONF", "/etc/purser/purser.conf")
-DEVICE = os.environ.get("LIGHT_DEVICE", "/dev/spidev1.0")
+DEVICE = os.environ.get("LIGHT_DEVICE", "/dev/spidev1.1")
 COUNT = 8
 HZ = 3_200_000
 FPS = 30

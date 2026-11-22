@@ -146,12 +146,12 @@ clock_state() {
     if ! rtc_trusted; then rm -f "$f"; echo unsynced; return 0; fi
     src=rtc
   fi
-  if read -r rw rm < "$f" 2>/dev/null && [[ ${rw:-} =~ ^[0-9]+$ ]] && [[ ${rm:-} =~ ^[0-9]+$ ]]; then
+  if read -r rw rm 2>/dev/null < "$f" && [[ ${rw:-} =~ ^[0-9]+$ ]] && [[ ${rm:-} =~ ^[0-9]+$ ]]; then
     d=$(( (w - rw) - (m - rm) )); d=${d#-}
     if [ "$d" -gt "$CLOCK_JUMP_MAX" ]; then echo "$m $d" > "$j"; fi
   fi
   echo "$w $m" > "$f"
-  if read -r ref _ < "$j" 2>/dev/null && [[ ${ref:-} =~ ^[0-9]+$ ]] && [ $(( m - ref )) -lt 3600 ]; then echo jump; return 0; fi
+  if read -r ref _ 2>/dev/null < "$j" && [[ ${ref:-} =~ ^[0-9]+$ ]] && [ $(( m - ref )) -lt 3600 ]; then echo jump; return 0; fi
   if [ "$src" = rtc ]; then
     # no network time: the battery clock is the reference; the system clock must stay with it
     e=$(rtc_epoch) || { echo unsynced; return 0; }

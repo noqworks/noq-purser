@@ -28,7 +28,9 @@ done
 for u in purser-light.service purser-maint.service; do
   check "enabled: $u" test -L "$M/etc/systemd/system/multi-user.target.wants/$u"
 done
-check "light stick overlay" grep -q '^overlays=.*spidev1_0' "$M/boot/armbianEnv.txt"
+check "light stick overlay (SPI1, chip select 1)" grep -q '^user_overlays=.*purser-spi1' "$M/boot/armbianEnv.txt"
+check "light stick overlay file" test -s "$M/boot/overlay-user/purser-spi1.dtbo"
+check "no spidev1_0 (it would take pin 3 from the clock)" bash -c '! grep -q "^overlays=.*spidev1_0" "$1/boot/armbianEnv.txt"' _ "$M"
 check "battery clock bus (I2C3) overlay" grep -q '^overlays=.*i2c3-ph' "$M/boot/armbianEnv.txt"
 check "battery clock driver" bash -c 'ls "$1"/lib/modules/*/kernel/drivers/rtc/rtc-ds1307.ko* >/dev/null 2>&1' _ "$M"
 check "hwclock present" test -x "$M/usr/sbin/hwclock" -o -x "$M/sbin/hwclock"

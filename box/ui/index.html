@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)">
 <title>NOQ Purser</title>
 <style>
+[hidden]{display:none!important}
 :root{
  --zemin:#eeeeec;--panel:rgba(250,250,248,.8);--kanvas:#e9e9e7;--tasan:linear-gradient(#e9e9e7 50%,#d5d4d0 50%);--sahne:linear-gradient(to top,#d5d4d0 0%,#d5d4d0 1%,#eeeeec 31%,#efeeec 75%,#e9e9e7 100%);
  --yazi:#17181a;--soluk:#62656b;--cok-soluk:#8d9096;
@@ -177,7 +178,6 @@ button:focus{outline:none}button:focus-visible{outline:2px solid var(--yazi);out
 .mini i{aspect-ratio:1;border-radius:50%;background:#26282e}
 .mini i.yan{background:var(--r);box-shadow:0 0 5px var(--r),0 0 14px color-mix(in srgb,var(--r) 55%,transparent)}
 .cubuk i.yan{background:var(--r);box-shadow:0 0 6px var(--r),0 0 22px color-mix(in srgb,var(--r) 60%,transparent)}
-.cubuk[data-desen=dolan] i{animation:dolan 2.4s calc(var(--i) * .22s) infinite both}
 .cubuk[data-desen=nefes] i{animation:nefes 2.2s ease-in-out infinite}
 .cubuk[data-desen=nefes-yavas] i{animation:nefes 3.6s ease-in-out infinite}
 .cubuk[data-desen=donusum] i{animation:donusum 1.6s steps(1,end) infinite}
@@ -215,7 +215,7 @@ button:focus{outline:none}button:focus-visible{outline:2px solid var(--yazi);out
    <div><dt data-t="kart"></dt><dd id="kart-c">—</dd></div>
    <div><dt data-t="baglanti"></dt><dd id="disk-hiz">—</dd></div>
    <div><dt data-t="acikKalma"></dt><dd id="acik">—</dd></div>
-   <div><dt data-t="saat"></dt><dd id="saat">—</dd></div>
+   <div><dt data-t="saat" id="saat-baslik"></dt><dd id="saat">—</dd></div>
    <div class="genis"><dt data-t="disk"></dt><dd id="disk">—</dd></div>
   </dl>
  </section>
@@ -319,9 +319,14 @@ $("isik-serit").setAttribute("aria-label",METIN.seritEtiket);
 const GORUNUS={ready:["beyaz",null,"sabit",[]],unpaired:["beyaz",null,"sabit",[0,7]],pulling:["mavi",null,"dolan",[]],checking:["camgobegi",null,"nefes",[]],
  done:["yesil",null,"sabit",[]],warning:["sari",null,"sabit",[]],fault:["turuncu",null,"sabit",[]],suspect:["kirmizi",null,"nefes-yavas",[]],
  locked:["kirmizi","beyaz","donusum",[]],maint:["mor","yesil","donusum",[]]};
+const dolanlar=new Map();
+function dolanSur(el,acik){clearInterval(dolanlar.get(el));dolanlar.delete(el);if(!acik)return;let t=0;
+ const adim=()=>{const pos=t%11;[...el.children].forEach((n,i)=>n.classList.toggle("yan",i<pos));t++};adim();dolanlar.set(el,setInterval(adim,250))}
 function cubukCiz(el,durum){const [r,r2,desen,yanik]=GORUNUS[durum]||GORUNUS.unpaired;
  el.dataset.desen=desen;el.style.setProperty("--r",`var(--${r})`);if(r2)el.style.setProperty("--r2",`var(--${r2})`);else el.style.removeProperty("--r2");
  if(el.children.length!==8){el.replaceChildren(...Array.from({length:8},(_,i)=>{const n=document.createElement("i");n.style.setProperty("--i",i);return n}))}
+ if(desen==="dolan"){if(!dolanlar.has(el))dolanSur(el,true);return}
+ dolanSur(el,false);
  [...el.children].forEach((n,i)=>n.classList.toggle("yan",(desen==="sabit"||desen.startsWith("nefes"))&&(!yanik.length||yanik.includes(i))))}
 function sure(sn){const g=Math.floor(sn/86400),s=Math.floor(sn%86400/3600),d=Math.floor(sn%3600/60);return g?`${g} ${METIN.gun} ${s} ${METIN.sa}`:s?`${s} ${METIN.sa} ${d} ${METIN.dk}`:`${d} ${METIN.dk}`}
 function derece(v){return v==null?"—":`${v}<small> °C</small>`}
@@ -329,6 +334,8 @@ function nesilTarih(id){const t=new Date(`${id.slice(0,10)}T${id.slice(11,13)}:$
  return t.toLocaleString(DIL==="tr"?"tr-TR":"en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
 function boyut(b){return b>=1e12?`${(b/1e12).toFixed(2)} TB`:b>=1e9?`${(b/1e9).toFixed(1)} GB`:`${Math.round(b/1e6)} MB`}
 let sonDurum=null;
+function saatYaz(t,tz){try{return new Intl.DateTimeFormat(DIL==="tr"?"tr-TR":"en-GB",{hour:"2-digit",minute:"2-digit",timeZone:tz}).format(t*1000)}
+ catch(e){return new Intl.DateTimeFormat(DIL==="tr"?"tr-TR":"en-GB",{hour:"2-digit",minute:"2-digit"}).format(t*1000)}}
 async function oku(){
  try{const v=await (await fetch("/api/status",{cache:"no-store"})).json();sonDurum=v;
   $("kimlik").textContent=v.id;
@@ -342,7 +349,7 @@ async function oku(){
   $("disk-c").innerHTML=derece(d.temp);$("kart-c").innerHTML=derece(v.board_temp);
   $("disk-hiz").innerHTML=d.link?`${parseInt(d.link)}<small> Mbit/s</small>`:"—";
   $("acik").textContent=sure(v.uptime_s);
-  const ck=v.clock||{};$("saat").textContent=METIN.saatKaynak[ck.source||"none"];$("saat-dugme").hidden=!(ck.rtc&&ck.source!=="ntp");
+  const ck=v.clock||{},iyi=ck.source==="ntp"||ck.source==="rtc";$("saat-baslik").textContent=iyi?METIN.saatKaynak[ck.source]:METIN.saat;$("saat").textContent=iyi&&ck.now?saatYaz(ck.now,ck.tz):METIN.saatKaynak.none;$("saat-dugme").hidden=!(ck.rtc&&ck.source!=="ntp");
   $("surum").textContent=`${METIN.surum} ${v.version}`;
   const ns=v.generations||[];$("nesil-bos").hidden=ns.length>0;$("nesil-serit").hidden=!ns.length;
   $("nesil-serit").replaceChildren(...ns.slice(0,14).map(n=>{const k=document.createElement("div");k.className="nesil";

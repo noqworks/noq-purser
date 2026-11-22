@@ -15,12 +15,46 @@ pair_decode() {   # pair_decode <token> -> fields on separate lines
   printf '%s' "$b" | base64 -d 2>/dev/null | tr '|' '\n'
 }
 
-cmd_pair() {   # pair <token>
-  local token=${1:-} f=() host port user hostkey key tmp out pub
+# v2 (binary, short QR): 0x02 | IPv4 | port | user | host key 32 | seed 32 | public key 32.
+# Prints host, port, user, the host key line and the one-time private key body (OpenSSH format).
+pair_decode_v2() {
+  python3 -I - "${1#purser-pair:}" <<'PY' 2>/dev/null
+import base64, ipaddress, os, struct, sys
+t = sys.argv[1]
+raw = base64.urlsafe_b64decode(t + "=" * (-len(t) % 4))
+if not raw or raw[0] != 2:
+    sys.exit(1)
+host = str(ipaddress.IPv4Address(raw[1:5])); port = struct.unpack(">H", raw[5:7])[0]
+n = raw[7]; user = raw[8:8 + n].decode("ascii"); i = 8 + n
+hk, seed, pub = raw[i:i + 32], raw[i + 32:i + 64], raw[i + 64:i + 96]
+if len(pub) != 32:
+    sys.exit(1)
+s = lambda b: struct.pack(">I", len(b)) + b
+kt = b"ssh-ed25519"
+blob = s(kt) + s(pub)
+chk = os.urandom(4)
+priv = chk + chk + s(kt) + s(pub) + s(seed + pub) + s(b"")
+k = 1
+while len(priv) % 8:
+    priv += bytes([k]); k += 1
+body = b"openssh-key-v1\0" + s(b"none") + s(b"none") + s(b"") + struct.pack(">I", 1) + s(blob) + s(priv)
+print(host); print(port); print(user)
+print("ssh-ed25519 " + base64.b64encode(s(kt) + s(hk)).decode())
+print(base64.b64encode(body).decode())
+PY
+}
+
+cmd_pair() {   # pair <token> [--later]   --later: the page asked; the firewall closes a moment after it got its answer
+  local token=${1:-} later=${2:-} f=() host port user hostkey key tmp out pub
   [ "$(id -u)" = 0 ] || { say "$(msg E_ROOT)" >&2; return 1; }
   mapfile -t f < <(pair_decode "$token") || true
-  [ "${#f[@]}" -ge 6 ] && [ "${f[0]}" = v1 ] || { say "$(msg E_PAIR_TOKEN)" >&2; return 2; }
-  host=${f[1]} port=${f[2]} user=${f[3]} hostkey=${f[4]} key=${f[5]}
+  if [ "${#f[@]}" -ge 6 ] && [ "${f[0]}" = v1 ]; then
+    host=${f[1]} port=${f[2]} user=${f[3]} hostkey=${f[4]} key=${f[5]}
+  else
+    mapfile -t f < <(pair_decode_v2 "$token") || true
+    [ "${#f[@]}" -eq 5 ] || { say "$(msg E_PAIR_TOKEN)" >&2; return 2; }
+    host=${f[0]} port=${f[1]} user=${f[2]} hostkey=${f[3]} key=${f[4]}
+  fi
   [[ $host =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] && [[ $port =~ ^[0-9]{1,5}$ ]] && [[ $user =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
     && [[ $hostkey =~ ^ssh-ed25519\ [A-Za-z0-9+/]+=*$ ]] && [[ $key =~ ^[A-Za-z0-9+/=]+$ ]] || { say "$(msg E_PAIR_TOKEN)" >&2; return 2; }
   ensure_users; ensure_ssh_key
@@ -47,9 +81,14 @@ cmd_pair() {   # pair <token>
   printf '[%s]:%s %s\n' "$host" "$port" "$hostkey" > "$SSH_DIR/known_hosts"; chmod 0644 "$SSH_DIR/known_hosts"
   load_config
   setup_mark hostkey "done"; setup_mark paired "$(now)"
-  apply_config || true
   setup_finish_if_complete
   notify paired default N_PAIRED "$(cat /etc/purser/id)"
+  if [ "$later" = --later ] && systemd_up && systemd-run --quiet --no-block --on-active=5 --unit="purser-apply-$$" \
+       "$PURSER_LIB/../../sbin/purser" apply-config >/dev/null 2>&1; then
+    :   # the page gets its answer now; the firewall is applied in five seconds
+  else
+    apply_config || true
+  fi
   led_update
   say "$(msg I_PAIRED "$host")"
 }

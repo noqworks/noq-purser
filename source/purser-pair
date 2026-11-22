@@ -53,9 +53,31 @@ echo "$FROM" > "$PAIR_STATE/cidr"
 install -d -m 0770 -o root -g "$GATE_USER" "$BASE/pair"
 "$PREFIX/sbin/purser-admit" render >/dev/null
 
-hostkey=$(cut -d' ' -f1,2 /etc/purser/ssh/ssh_host_ed25519_key.pub)
-priv=$(sed '1d;$d' "$PAIR_STATE/key" | tr -d '\n')
-token="purser-pair:$(printf 'v1|%s|%s|%s|%s|%s' "$host" "$port" "$GATE_USER" "$hostkey" "$priv" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+# v2: 0x02, IPv4, port, user, the gate's ed25519 host key (32 bytes), the one-time key's seed and
+# public key (32 + 32 bytes); the box rebuilds the OpenSSH key file from them. About 160 characters.
+token="purser-pair:$(python3 - "$host" "$port" "$GATE_USER" /etc/purser/ssh/ssh_host_ed25519_key.pub "$PAIR_STATE/key" <<'PY'
+import base64, ipaddress, struct, sys
+host, port, user, hk, kf = sys.argv[1:]
+def rd(b, i):
+    n = struct.unpack(">I", b[i:i + 4])[0]
+    return b[i + 4:i + 4 + n], i + 4 + n
+blob = base64.b64decode(open(hk).read().split()[1])
+t, i = rd(blob, 0); hraw, _ = rd(blob, i)
+body = base64.b64decode("".join(l for l in open(kf).read().splitlines() if not l.startswith("-----")))
+i = len(b"openssh-key-v1\0")
+for _ in range(3):
+    _, i = rd(body, i)
+i += 4
+_, i = rd(body, i)
+priv, _ = rd(body, i)
+j = 8
+_, j = rd(priv, j); pub, j = rd(priv, j); sk, j = rd(priv, j)
+assert t == b"ssh-ed25519" and len(hraw) == 32 and len(pub) == 32 and len(sk) == 64
+u = user.encode()
+raw = b"\x02" + ipaddress.IPv4Address(host).packed + struct.pack(">H", int(port)) + bytes([len(u)]) + u + hraw + sk[:32] + pub
+print(base64.urlsafe_b64encode(raw).decode().rstrip("="))
+PY
+)"
 
 echo
 echo "On the box: turn the maintenance switch on, open its page, Pair with server."
