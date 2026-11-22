@@ -18,6 +18,7 @@ rm -rf "$OUT"; mkdir -p "$OUT" "$META"
 IMG=noq-purser-$V-orangepizero3.img.xz
 cp "$SRC" "$OUT/$IMG"
 install -m 0755 "$REPO/image/flash.sh" "$REPO/image/purser-setup" "$OUT/"
+install -m 0755 "$REPO/source/install-web.sh" "$OUT/install"
 printf '#!/bin/bash\n# double-click on a Mac (first time: right-click > Open)\ncd "$(dirname "$0")" && exec bash ./purser-setup\n' > "$OUT/purser-setup.command"
 chmod 0755 "$OUT/purser-setup.command"
 
@@ -51,7 +52,7 @@ NOQ Purser $V: server side (Debian, Ubuntu; systemd)
 Guide: https://open.noq.works/projects/purser/
 EOF
 tar -C "$t" --owner=0 --group=0 -czf "$OUT/noq-purser-server-$V.tar.gz" "noq-purser-server-$V"
-(cd "$OUT" && sha256sum "$IMG" flash.sh purser-setup purser-setup.command "noq-purser-setup-$V.tar.gz" "noq-purser-server-$V.tar.gz" > SHA256SUMS)
+(cd "$OUT" && sha256sum "$IMG" flash.sh purser-setup purser-setup.command install "noq-purser-setup-$V.tar.gz" "noq-purser-server-$V.tar.gz" > SHA256SUMS)
 sum() { awk -v n="$1" '$2 == n { print $1 }' "$OUT/SHA256SUMS"; }
 size() { stat -c %s "$OUT/$1"; }
 printf '%s  %s\n' "$(sum "$IMG")" "$IMG" > "$OUT/$IMG.sha256"
