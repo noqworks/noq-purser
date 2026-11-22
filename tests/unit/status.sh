@@ -53,4 +53,8 @@ $P light pulling
 eq "tick leaves a running job's light alone" pulling "$(tr -d " " < /run/purser/light)"
 $P tick >/dev/null 2>&1
 ok "tick without a job redraws the light" not grep -q "^pulling" /run/purser/light
+$P light pulling
+( flock 9; $P notify-maint still-on 2 >/dev/null 2>&1 ) 9>/run/purser.lock
+eq "a switch notice leaves a running job's light alone" pulling "$(tr -d " " < /run/purser/light)"
+$P tick >/dev/null 2>&1
 done_testing

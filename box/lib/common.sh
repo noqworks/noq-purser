@@ -128,6 +128,8 @@ need_config() {
 take_lock() {
   exec 9>"$LOCK_FILE"
   flock -n 9 || { say "$(msg ERR_BUSY)" >&2; exit 1; }
+  # shellcheck disable=SC2034  # read by led_update (status.sh)
+  HOLDS_LOCK=1   # this process owns the light until it ends
 }
 
 # Kinds: "type:dir[:prune days]"; prune days is "any" or a comma list of ISO weekdays (1-7).

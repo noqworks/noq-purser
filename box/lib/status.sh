@@ -13,6 +13,9 @@ last_sound_age_h() {
 # > warning > pulling / checking (set by the nightly job while it runs) > done > ready.
 led_update() {
   local result age
+  # A running job (nightly window, first fill, disk-on session) owns the light: anyone else
+  # (hourly tick, switch notices, udev) must not draw "ready" over "pulling" / "checking".
+  if [ -z "${HOLDS_LOCK:-}" ] && job_running; then return 0; fi
   result=$(kv_get "$ST_LAST_RUN" result)
   if [ -z "$SERVER" ] || [ -z "$LUKS_UUID" ] || [ "$(kv_get "$ST_SETUP" state)" != "done" ]; then
     led_show setup; light_set unpaired; return 0
@@ -67,7 +70,7 @@ tick() {
     notify code_missing default N_CODE_MISSING
   fi
   disk_left_open
-  job_running || led_update   # a running job owns the light (pulling / checking)
+  led_update
 }
 
 # Outside a job and outside a "disk-on" session the disk is closed. If it is not, close it.
