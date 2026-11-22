@@ -35,16 +35,16 @@ Outside 175.5 × 68.9 × 27 mm. r1b replaces r1 after r1 was printed and assembl
 
 On the bench the stick sometimes showed random colours on random LEDs, more while the disk was busy. The stick runs on
 5 V and reads its data line against 0.7 × 5 V = 3.5 V; the Orange Pi drives that line at 3.3 V, so every update is on the
-edge. Fix it at the stick:
+edge. Fix it entirely at the stick; nothing changes on the Orange Pi (same header pins, same wires):
 
 - a **1N4007 diode in series in the stick's 5 V lead** (anode to the supply, banded end to the stick): the stick runs at
   about 4.3 V and reads 3.3 V data reliably (LEDs a little dimmer);
 - a **470–1000 µF electrolytic capacitor** (10 V or more) across the stick's 5 V and GND, after the diode, close to the
   stick (long leg to 5 V);
-- a **330 Ω resistor in series in the data line**, best right at header pin 19;
+- a **330 Ω resistor in series in the data line, at the stick's DIN pad**;
 - GND stays common with the Orange Pi; nothing goes in the GND line.
 
-A 74AHCT125 level shifter on the data line is the alternative to the diode. Until the stick has these parts the light
+A 74AHCT125 level shifter at the stick's DIN, powered from the stick's 5 V, is the alternative to the diode. Until the stick has these parts the light
 software draws steady states (no continuous breathing), because every update is a chance for a garbled frame.
 
 ## Assembly
@@ -89,16 +89,16 @@ r1b, r1 tezgâhta basılıp kurulduktan sonra onun yerine geldi.
 ### Işık çubuğu: kararlı renkler
 
 Tezgâhta çubuk bazen rastgele LED'lerde rastgele renkler gösterdi, disk çalışırken daha sık. Çubuk 5 V'la çalışır ve veri
-hattını 0,7 × 5 V = 3,5 V eşiğiyle okur; Orange Pi bu hattı 3,3 V ile sürer, yani her güncelleme sınırda. Çözüm çubukta:
+hattını 0,7 × 5 V = 3,5 V eşiğiyle okur; Orange Pi bu hattı 3,3 V ile sürer, yani her güncelleme sınırda. Çözümün tamamı çubukta; Orange Pi'de hiçbir şey değişmez (aynı header pinleri, aynı kablolar):
 
 - **çubuğun 5 V ucuna seri 1N4007 diyot** (anot besleme tarafına, şeritli uç çubuğa): çubuk yaklaşık 4,3 V ile çalışır ve
   3,3 V veriyi güvenle okur (LED'ler biraz sönükleşir);
 - **470–1000 µF elektrolitik kondansatör** (10 V ya da üstü), çubuğun 5 V ile GND'si arasına, diyottan sonra, çubuğa yakın
   (uzun bacak 5 V'a);
-- **veri hattına seri 330 Ω direnç**, en iyisi 19. pinin hemen çıkışında;
+- **veri hattına seri 330 Ω direnç**, çubuğun DIN girişinde;
 - GND Orange Pi ile ortak kalır; GND hattına bir şey konmaz.
 
-Diyot yerine veri hattına 74AHCT125 seviye çevirici de olur. Çubuğa bu parçalar eklenene kadar ışık yazılımı durumları
+Diyot yerine çubuğun DIN girişine, çubuğun 5 V'undan beslenen 74AHCT125 seviye çevirici de olur. Çubuğa bu parçalar eklenene kadar ışık yazılımı durumları
 sabit çizer (sürekli nefes alma yok), çünkü her güncelleme bozuk bir kare için bir fırsattır.
 
 ### Montaj
