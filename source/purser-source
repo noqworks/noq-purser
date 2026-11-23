@@ -51,7 +51,9 @@ unit_done_tonight() {   # a unit whose timer is enabled must have run tonight an
   t=$(systemctl show --timestamp=unix -p LastTriggerUSec --value "${u%.service}.timer"); t=${t#@}
   s=$(systemctl show --timestamp=unix -p ExecMainStartTimestamp --value "$u"); s=${s#@}
   [[ $t =~ ^[0-9]+$ ]] && [ "$t" -ge "$night_start" ] && return 0
-  [[ $s =~ ^[0-9]+$ ]] && [ "$s" -ge "$night_start" ]
+  [[ $s =~ ^[0-9]+$ ]] && [ "$s" -ge "$night_start" ] && return 0
+  # after a reboot systemd no longer knows tonight's run: the journal does
+  [ -n "$(journalctl -q -u "$u" --since "@$night_start" -g 'Finished|Deactivated successfully' -n 1 -o cat 2>/dev/null)" ]
 }
 tool_locked() {
   local s p
@@ -98,7 +100,7 @@ cleanup_frozen() {   # remove the tools' temporary and lock files from the froze
   for s in "${SOURCES[@]}"; do
     d=$TMP/$(src_name "$s")
     case $(src_type "$s") in
-      pgbackrest) find "$d" -name '*.pgbackrest.tmp' -delete ;;
+      pgbackrest) find "$d" -name '*.pgbackrest.tmp' -delete; find "$d" -type l -name latest -delete ;;   # 'latest' is a convenience link; restore reads backup.info
       borg) rm -f -- "$d"/lock.exclusive "$d"/lock.roster; rm -rf -- "$d"/lock.exclusive ;;
       restic) find "$d/locks" -mindepth 1 -delete 2>/dev/null || true ;;
     esac

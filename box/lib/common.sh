@@ -8,7 +8,7 @@
 
 CONF=${PURSER_CONF:-/etc/purser/purser.conf}
 # shellcheck disable=SC2034
-PURSER_VERSION=1.0.0
+PURSER_VERSION=1.1.0
 
 load_config() {
   if [ -r "$CONF" ]; then
@@ -61,6 +61,7 @@ frozen_names() {
   ST_SUSPECT_FLAG=$STATE/supheli-var
   ST_LAST_LIST=$STATE/son.list
   ST_TRANSFER_HISTORY=$STATE/aktarim.gecmis # "<id> <weekday> <bytes>"
+  ST_GENERATIONS=$STATE/nesiller            # "<id> <gunluk|uzun> <bytes>": published generations on the disk
   ST_STALE_PREFIX=$STATE/bayat-             # bayat-<source dir>: nights without change
   ST_MARK=$STATE/t0
   ST_VERIFY_SET=$STATE/dogrula

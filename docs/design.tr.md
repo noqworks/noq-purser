@@ -317,7 +317,7 @@ Arka kapı yerleştirilmiş bir yedek aracı, hiç yedek aracı olmamasından k�
 
 | Seçenek | Neden olmaz |
 | --- | --- |
-| Bulut yedek | Kapsam dışı: NOQ Purser sunucunun yanındaki fiziksel kopyadır, buluta alternatif değil |
+| Bulut yedek | Kapsam dışı: NOQ Purser sunucuyla aynı ağdaki fiziksel kopyadır, buluta alternatif değil |
 | Hazır NAS | 7/24 ağda; kendisi hedef olur |
 | Rastgele pencere saati | Koruma katmaz, yanlış alarm üretir, pencere dışı bağlantı uyarısını anlamsız kılar |
 | Yarım kalmış eski nesli tamamlamak | Sunucunun tavanı onu silebilir; kutu her zaman en yeniye gider |

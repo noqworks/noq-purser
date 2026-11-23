@@ -105,6 +105,13 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
     else btrfs -q subvolume create "$STAGING"; fi
   fi
   find -P "$STAGING" -xdev ! -user "$RSYNC_USER" -exec chown -h "$RSYNC_USER:$RSYNC_USER" {} + 2>/dev/null || true
+  # damaged copies (holes) are removed so tonight's transfer pulls them again; size and mtime alone
+  # would let rsync skip them for ever. Pulled again, they are read back below like any touched file.
+  holes_find "$STAGING" > "$w/holes" || true
+  if [ -s "$w/holes" ]; then
+    log "staging: $(count "$w/holes") damaged file(s) with holes, pulled again tonight"
+    ( cd "$STAGING" && tr '\n' '\0' < "$w/holes" | xargs -0 -r rm -f -- )
+  fi
   touch "$w/t0"; sleep 1
   cp "$w/t0" "$ST_MARK" 2>/dev/null || true
   # bytes used on the disk as the transfer starts (after disk_make_room): the page shows the growth since
@@ -145,6 +152,9 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
 
   t=$(budget_left "$start" 300)
   [ "$t" -gt 60 ] || { abort_window partial "$id" N_NO_TIME "$id"; return 1; }
+  # read back from the disk, not from memory: without this the hash reads the page cache rsync just
+  # filled, and data that never reached the disk still verifies (seen on the bench box, Nov 2026)
+  sync; { echo 3 > /proc/sys/vm/drop_caches; } 2>/dev/null || true
   if ! VERIFY_TIMEOUT=$t verify hash "$STAGING" < "$w/verify" > "$w/actual"; then
     abort_window verify_failed "$id" N_VERIFY_FAILED "$id"; return 1
   fi
@@ -166,6 +176,7 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
       "$w/actual2" "$w/list" > "$w/bad.still"
     cat "$w/bad.still" >> "$w/bad.other"
   fi
+  holes_find "$STAGING" >> "$w/bad.other" || true
   other=$(count "$w/bad.other")
   if [ "$other" -gt 0 ]; then
     abort_window verify_failed "$id" N_VERIFY_FAILED "$id"; return 1
@@ -251,8 +262,17 @@ finish() {   # <id> <start>
   if long_cut_due "$id"; then long_cut "$id"; fi
   retention_apply
   left=$(budget_left "$start" $(( RESERVE_MIN * 60 )))
-  maintenance "$id" "$left"
+  # First generation: everything was just written and checked file by file against the list.
+  # Reading the whole disk again (scrub, scan slice) adds hours and proves nothing new; the
+  # monthly cycle starts from here.
+  if [ ! -s "$ST_LAST_PUBLISHED" ]; then
+    kv_set "$ST_MAINT" scrub_state "done"; kv_set "$ST_MAINT" scrub_done "$(now)"
+    log "first generation: whole-disk read skipped, monthly scrub cycle starts now"
+  else
+    maintenance "$id" "$left"
+  fi
   disk_usage_record
+  generations_record
   cache_suspects
   suspect_state_sync
   disk_close || closed=0

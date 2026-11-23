@@ -111,7 +111,7 @@ if [ "$HERE" != "$SHARE" ]; then
   install -d "$SHARE/systemd"; install -m 0644 "$HERE"/systemd/* "$SHARE/systemd/"
 fi
 [ -n "${PURSER_VERSION:-}" ] && printf '%s\n' "$PURSER_VERSION" > "$SHARE/version"
-[ -s "$SHARE/version" ] || printf '%s\n' "$(cat "$HERE/version" 2>/dev/null || echo 1.0.0)" > "$SHARE/version"
+[ -s "$SHARE/version" ] || printf '%s\n' "$(cat "$HERE/version" 2>/dev/null || echo 1.1.0)" > "$SHARE/version"
 
 step "configuration"
 install -d -m 0755 /etc/purser /etc/purser/ssh

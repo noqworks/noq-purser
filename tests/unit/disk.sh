@@ -4,6 +4,7 @@
 # not lock is reported; the hourly tick locks a disk left open outside a job.
 . /src/tests/lib/assert.sh
 . /src/tests/lib/box.sh
+holes_check() { ( cd "$1" && find . -type f -size +64k -printf '%s %b %P\n' ) | awk '$2 * 512 + 65536 < $1 { print $3 }'; }
 lab_reset
 first_night 2026-03-01T03-10Z
 eq "night 1" tamam "$(last)"
@@ -51,4 +52,22 @@ $P tick >/dev/null 2>&1
 ok "tick leaves the disk alone while a job runs" mountpoint -q "$M"
 wait; $P tick >/dev/null 2>&1
 ok "and locks it once the job is gone" locked
+# a damaged copy (holes: parts never reached the disk) in the published generation is pulled again,
+# although size and mtime still match the server (seen on the bench box, Nov 2026)
+rnd "$S/borgdemo/data/0/90" 1048576
+night_activity 20260310 2; publish_generation 2026-03-10T03-10Z; run_box holes-1
+eq "night with a large segment" tamam "$(last)"
+mount_disk
+g=$G/gen-2026-03-10T03-10Z
+btrfs -q property set -ts "$g" ro false
+fallocate --punch-hole --offset 131072 --length 786432 "$g/borgdemo/data/0/90"
+btrfs -q property set -ts "$g" ro true
+umount_disk
+night_activity 20260311 3; publish_generation 2026-03-11T03-10Z; run_box holes-2
+eq "night after the damage" tamam "$(last)"
+ok "the damaged copy is logged" grep -q 'damaged file(s) with holes, pulled again tonight' "$LOGDIR/run-holes-2.log"
+mount_disk
+eq "the copy matches the server again" "$(sha "$S/borgdemo/data/0/90")" "$(sha "$G/gen-2026-03-11T03-10Z/borgdemo/data/0/90")"
+eq "and has no holes" "" "$(holes_check "$G/gen-2026-03-11T03-10Z")"
+umount_disk
 done_testing

@@ -22,7 +22,7 @@ notu adı) koruma değil, sinyal sayılır.
 | Durum | Neden |
 | --- | --- |
 | **Kutu ele geçirilir** | Disk anahtarı kutudadır ve disk kutuya takılıdır. Kutuyu yöneten diskin şifresini açıp silebilir. Tek disk vardır: geçmiş gider. Sunucuya bakan saldırı yüzeyi kum havuzundaki rsync istemcisidir. |
-| **Yerinde yangın, hırsızlık, el koyma** | Kutu ve disk sunucunun yanında durur (aynı bina ya da arazi). İkisini birden yok eden ya da götüren şey geçmişi de götürür. Başka bir yerde kopya bu sürümün parçası değildir. |
+| **Yerinde yangın, hırsızlık, el koyma** | Kutu ve disk sunucuyla aynı ağdadır; çoğunlukla aynı binada ya da arazidedir. İkisini birden yok eden ya da götüren şey geçmişi de götürür. Başka bir yerde kopya bu sürümün parçası değildir. |
 | **Aylarca bozuk yedek üreten sabırlı saldırgan** | Kutu bozuk veriyi sadakatle saklar. Tek karşılık uzun saklama (12 ay) ve düzenli geri yükleme tatbikatıdır. Tatbikat yapılmıyorsa NOQ Purser kimseyi kurtarmaz. |
 | **Disk parolasının ya da LUKS başlığının kaybı** | Kâğıttaki parola ve başlık yedeği yoksa geri yükleme yoktur. |
 | **Yedeklenmeyen veri** | Kaynak listesi kurulumu yapanın sorumluluğudur. |

@@ -104,11 +104,12 @@ def mix(a, b, k):
     return tuple(((x / 255) ** (1 / GAMMA) * (1 - k) + (y / 255) ** (1 / GAMMA) * k) ** GAMMA * 255 for x, y in zip(a, b))
 
 
-# LIGHT_ANIM=0 (default until the data line gets its resistor / level shift): no continuous breathing. On this board
-# every SPI write has a small chance to reach the stick garbled while the disk is busy (a random colour flash), so
-# a 25-a-second animation looked like a disco ball; with one write a second the stick stays calm (bench test,
-# 22 Nov 2026). States are steady; only a change of state glides in (a short burst of writes), then it is quiet.
-ANIM = conf("LIGHT_ANIM", "0") == "1"
+# LIGHT_ANIM=1 (default since 23 Nov 2026): breathing and filling animations. Needs the stick fix from the case
+# README (1N4007 in the stick's 5 V lead, 470-1000 uF across 5 V / GND, 330 ohm in DIN): without it every SPI write
+# has a small chance to reach the stick garbled while the disk is busy and a 25-a-second animation looks like a disco
+# ball (bench, 22 Nov). A stick without the fix: LIGHT_ANIM=0 — states are steady (maintenance then shows as a fixed
+# purple tint that is hard to tell from the state), only a change of state glides in.
+ANIM = conf("LIGHT_ANIM", "1") == "1"
 
 
 def wave(t, period):                         # 0..1..0, a plain sine: no plateau, no steep middle (steady 0.6 without ANIM)

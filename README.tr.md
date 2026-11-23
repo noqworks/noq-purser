@@ -2,8 +2,8 @@
 
 [English](README.md)
 
-Sunucunun yanında duran küçük bir kutu: yedekleri her gece sunucudan alır ve geçmişlerini
-sunucunun ulaşamayacağı yerde saklar.
+Sunucuyla aynı ağda, başka bir odada ya da binada duran küçük bir kutu: yedekleri her gece sunucudan alır ve
+geçmişlerini sunucunun ulaşamayacağı yerde saklar.
 
 **Önizleme 1.0.0.** Tezgâhtaki kutuda sınanıyor. İndirme ve adım adım rehber:
 <https://open.noq.works/tr/projeler/purser/>
@@ -59,7 +59,8 @@ Desteklenen kaynaklar: pgBackRest, borg, restic, düz dizinler.
 
 - **Kutunun ele geçirilmesi.** Disk anahtarı kutuda, disk kutuya bağlı. Kutuyu yöneten geçmişi
   silebilir. Tek disk var.
-- **Aynı yerde yangın, hırsızlık ya da el koyma.** Kutu sunucunun yanında durur.
+- **Aynı yerde yangın, hırsızlık ya da el koyma.** Kutu sunucuyla aynı binadaysa tek bir olay ikisini birden
+  götürebilir. Kutuyu başka bir odaya, mümkünse başka bir binaya koy.
 - **Aylarca bozuk yedek üreten sabırlı bir saldırgan.** Kutu onları sadakatle saklar. Yanıtı uzun
   saklama süresi ve geri yükleme tatbikatıdır.
 - **Kaybolan disk parolası ya da LUKS başlığı**, ve yedeklemediğin veri.

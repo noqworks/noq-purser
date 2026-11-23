@@ -95,6 +95,23 @@ disk_usage_record() {
   printf 'used=%s\ntotal=%s\nat=%s\n' "$used" "$total" "$(now)" > "$ST_DISK_USAGE"
 }
 
+# Published generations as the page shows them. The disk is locked most of the time, so the list is
+# written while it is open (after publish and retention). The transfer history is not this list: it
+# skips the first generation and keeps ids that retention already removed.
+generations_record() {
+  local d id kind b t
+  t=$(mktemp "$ST_GENERATIONS.XXXXXX")
+  for d in "$GEN_DIR"/gen-* "$GEN_DIR"/uzun-*; do
+    [ -d "$d" ] || continue
+    id=${d##*/}; kind=gunluk
+    case $id in uzun-*) kind=uzun ;; esac
+    id=${id#*-}
+    b=$(kv_get "$AUDIT/meta/$id" "$META_BYTES"); b=$(LC_ALL=C printf %.0f "${b:-0}" 2>/dev/null) || b=0   # awk sums may be 7.05e+11
+    printf '%s %s %s\n' "$id" "$kind" "${b:-0}"
+  done | sort > "$t"
+  chmod 0644 "$t"; mv -f "$t" "$ST_GENERATIONS"
+}
+
 # Monthly SMART reading through the USB-SATA bridge (SAT pass-through).
 smart_read() {
   local dev out health hours realloc pending life temp
@@ -115,4 +132,13 @@ smart_read() {
   elif [[ ${realloc:-0} =~ ^[0-9]+$ ]] && [[ ${pending:-0} =~ ^[0-9]+$ ]] && [ $(( ${realloc:-0} + ${pending:-0} )) -gt 0 ]; then
     notify smart_sectors high N_SMART_SECTORS "${realloc:-0}" "${pending:-0}"
   fi
+}
+
+# Files whose allocated blocks are clearly fewer than their size: parts of them were never written
+# (an interrupted night, a disk that dropped off USB, a power cut before the data reached the disk).
+# rsync never makes sparse files (no --sparse) and the disk is mounted without compression, so on a
+# Purser disk such a file is always damaged. Small files can live inline in btrfs metadata: skipped.
+holes_find() {   # holes_find <dir>  -> relative paths, one per line
+  ( cd "$1" && find . -xdev -type f -size +64k -printf '%s %b %P\n' ) |
+    awk '{ s = $1; b = $2; sub(/^[0-9]+ [0-9]+ /, ""); if (b * 512 + 65536 < s) print }'
 }

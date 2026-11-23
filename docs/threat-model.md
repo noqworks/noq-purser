@@ -22,7 +22,7 @@ note names) are treated as signals, not as protection.
 | Situation | Why |
 | --- | --- |
 | **The box is compromised** | The box holds the disk key and the disk is attached to it. Whoever controls the box can unlock and erase the disk. There is one disk: the history is gone. The attack surface toward the server is the sandboxed rsync client. |
-| **Fire, theft, seizure at the site** | Box and disk stand next to the server (same building or same site). Whatever destroys or removes both takes the history with it. A copy at another place is not part of this release. |
+| **Fire, theft, seizure at the site** | Box and disk are on the same network as the server, usually in the same building or on the same site. Whatever destroys or removes both takes the history with it. A copy at another place is not part of this release. |
 | **A patient attacker who produces bad backups for months** | The box keeps bad data faithfully. The only answer is long retention (12 months) and regular restore drills. Without drills NOQ Purser saves nobody. |
 | **Lost disk passphrase or LUKS header** | Without the paper passphrase and the header backup there is no restore. |
 | **Data that is not backed up** | The list of sources is the operator's responsibility. |

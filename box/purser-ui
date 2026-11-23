@@ -114,12 +114,18 @@ def hardware():
 
 
 def generations():
-    rows = []
-    for line in read(os.path.join(STATE, "aktarim.gecmis")).splitlines()[-30:]:
+    """Published generations (state file "nesiller", written by the core while the disk is open).
+    A daily generation that also has a long-retention copy is listed once, with long=True."""
+    rows, uzun = {}, set()
+    for line in read(os.path.join(STATE, "nesiller")).splitlines():
         p = line.split()
         if len(p) >= 3 and ID_RE.match(p[0]) and p[2].isdigit():
-            rows.append({"id": p[0], "bytes": int(p[2])})
-    return list(reversed(rows))
+            if p[1] == "uzun":
+                uzun.add(p[0])
+            rows.setdefault(p[0], {"id": p[0], "bytes": int(p[2])})
+    for i in uzun:
+        rows[i]["long"] = True
+    return [rows[k] for k in sorted(rows, reverse=True)][:30]
 
 
 def disk_usage(c):
@@ -279,6 +285,7 @@ def check_code(code):
 ACTIONS = {
     "run": lambda: run("systemctl", "start", "--no-block", "purser.service"),
     "selftest": lambda: run(PURSER, "selftest-nocode", timeout=180),
+    "disk-on": lambda: run(PURSER, "disk-on-nocode", timeout=180),
     "shutdown": lambda: (run(PURSER, "disk-off", timeout=60), run("systemctl", "--no-block", "poweroff"))[1],
 }
 

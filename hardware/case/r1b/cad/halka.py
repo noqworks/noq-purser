@@ -1,4 +1,4 @@
-"""Anahtar halkası r1b.2: M6×0,75 iç diş modelli (Umut: 'tamamen dolu ve dişli olmalı'). Gövde cadquery (koni + üst pah),
+"""Anahtar halkası r1b.2: M6×0,75 iç diş modelli (tamamen dolu ve dişli). Gövde cadquery (koni + üst pah),
 diş manifold3d ile: diş kesitinin yarıçapı açıya göre değişen 2B şekli, adım başına 360° bükülerek çekilir = tam sarmal."""
 import math, sys, numpy as np, trimesh, manifold3d as mf
 import cadquery as cq

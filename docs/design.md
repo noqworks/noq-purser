@@ -328,7 +328,7 @@ A backup tool with a backdoor is worse than no backup tool.
 
 | Option | Why not |
 | --- | --- |
-| Cloud backup | Out of scope: NOQ Purser is a physical copy next to the server, not a cloud alternative |
+| Cloud backup | Out of scope: NOQ Purser is a physical copy on the same network as the server, not a cloud alternative |
 | A ready-made NAS | Online around the clock; becomes a target itself |
 | A random window time | Adds no protection, produces false alarms, makes the out-of-window alert meaningless |
 | Finishing a half-transferred older generation | The server's ceiling may delete it; the box always goes to the newest |

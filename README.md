@@ -2,8 +2,8 @@
 
 [Türkçe](README.tr.md)
 
-A small box next to your server that takes the backups off it every night and keeps their
-history where the server cannot reach it.
+A small box on the same network as your server, in another room or building, that takes the backups off it
+every night and keeps their history where the server cannot reach it.
 
 **Preview 1.0.0.** Being tested on the bench box. Download and step-by-step guide:
 <https://open.noq.works/projects/purser/>
@@ -60,7 +60,8 @@ Supported sources: pgBackRest, borg, restic, plain directories.
 
 - **The box being compromised.** The box holds the disk key and the disk is attached to it.
   Whoever controls the box can erase the history. There is a single disk.
-- **Fire, theft or seizure at the same site.** The box stands next to the server.
+- **Fire, theft or seizure at the same site.** If the box is in the same building as the server, one event can
+  take both. Put it in another room, ideally another building.
 - **A patient attacker who produces bad backups for months.** The box keeps them faithfully. The
   answer is long retention and restore drills.
 - **Lost disk passphrase or LUKS header**, and data you do not back up.

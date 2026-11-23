@@ -11,7 +11,7 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else '.'
 OPI = (55.0, 50.0, 1.2); OPI_HOLES = (49.5, 45.0)
 RTC = (38.0, 21.7, 1.6)
 SSD = (59.0, 59.6)                      # SSD + bridge mated footprint
-# NeoPixel 8 stick — Umut's own stick (clones differ from Adafruit's layout, so his measurements rule):
+# NeoPixel 8 stick — measured on our own stick (clones differ from Adafruit's layout, so these measurements rule):
 # 51.3 x 9.6 mm; the two holes are 25 mm apart (centre to centre), in a 4 mm band along the DIN-side long edge
 # (hole centres 2 mm in from that edge); the LEDs fill the other 5.6 mm. The LED row is centred under the window.
 STICK = (51.3, 9.6, 1.6); STICK_HOLES = 25.0; STICK_PIN_D = 1.8   # 1.8 mm pin goes through any hole from 2 mm up
@@ -83,7 +83,7 @@ for _n, (_a, _b, _t) in SLOTS.items():
     if _n == 'usbc':
         continue
     shell = shell.cut(slot(_a, _b, _t, ROUND.get(_n, 0.8)))
-# USB-C (r1b): a full stadium, round at both ends (Umut). With the board 1.8 mm off the wall the connector no longer reaches
+# USB-C (r1b): a full stadium, round at both ends. With the board 1.8 mm off the wall the connector no longer reaches
 # into the wall, so the opening need not run down to the seam; it is centred on the connector and sized for an upright
 # plug overmould up to about 9 x 12.5 mm. Its lowest 0.3 mm falls below the seam, so the tray's wall is cut too.
 _c0, _c1 = PORTS['usbc'][0]; _cz0, _cz1 = PORTS['usbc'][1]
@@ -159,7 +159,7 @@ for sx in (-1, 1):
 
 # RTC (HW-084 / ZS-042), battery up, 6-pin edge to the left, at the back of the left bay
 rx, ry = P(X_RTC, IN_Y - 2.3 - RTC[1])
-RTC_HOLES = [(8.5, RTC[1] - 2.1), (8.5, 2.1), (8.5 + 25.5, 2.1)]   # r1b: the single far hole is on the front edge (Umut)
+RTC_HOLES = [(8.5, RTC[1] - 2.1), (8.5, 2.1), (8.5 + 25.5, 2.1)]   # r1b: the single far hole is on the front edge (measured)
 for hx, hy in RTC_HOLES:
     tray = tray.union(stake(rx + hx, ry + hy, z0 - 0.01, STAND, RTC[2]))
 
@@ -221,7 +221,7 @@ shell = shell.cut(cutter)
 RH, RD0, RD1 = 6.0, 12.0, 10.5
 ring = cq.Workplane().circle(RD0 / 2).workplane(offset=RH).circle(RD1 / 2).loft()
 ring = ring.faces('>Z').edges().fillet(0.6)
-# r1b (Umut: no nut underneath; it must grip from the very bottom): no nut pocket, no plain bore. One straight hole,
+# r1b (no nut underneath; it must grip from the very bottom): no nut pocket, no plain bore. One straight hole,
 # 5.6 mm, all the way up: the switch's metal bushing thread (M6 x 0.75 or 1/4"-40, both fit) cuts its own thread into
 # the PETG from the first turn. A 0.5 mm lead-in chamfer at the bottom starts it straight.
 ring = ring.cut(cq.Workplane().circle(5.6 / 2).extrude(RH + 1).translate((0, 0, -0.5)))

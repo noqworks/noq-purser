@@ -485,6 +485,11 @@ cmd_pin() {   # pin <id>
 
 cmd_disk_on() {
   code_require || return 1
+  cmd_disk_on_open
+}
+# The page asks for the code itself (check-code) and then calls disk-on-nocode. A restore drill reads the open
+# disk read-only from another machine; the disk locks itself again after DISK_ON_MIN minutes.
+cmd_disk_on_open() {
   take_lock; disk_open || return 1
   if systemd_up; then
     systemd-run --quiet --on-active="${DISK_ON_MIN}min" --unit=purser-disk-off "$PURSER_BIN" disk-off >/dev/null 2>&1 || true

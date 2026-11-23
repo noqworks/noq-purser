@@ -4,7 +4,7 @@
 # Nightly and internal:  run [--first-fill] | tick | boot | firstboot | apply-config
 # At the box (code):     clear <id> | pin <id> | disk-on | first-fill | selftest | new-code | shell | setup
 # Without a code:        status | disk-off | notify-test | setup-code (only if none set) | reset-code (always notified)
-# Page and switch:       pair <token> | check-code (code on stdin) | selftest-nocode | notify-maint on|off|still-on | light <state>
+# Page and switch:       pair <token> | check-code (code on stdin) | selftest-nocode | disk-on-nocode | notify-maint on|off|still-on | light <state>
 set -euo pipefail
 umask 022
 PURSER_LIB=${PURSER_LIB:-/usr/local/lib/purser}
@@ -85,6 +85,7 @@ case ${1:-} in
   pair) cmd_pair "${2:-}" "${3:-}" ;;
   check-code) cmd_check_code ;;
   selftest-nocode) cmd_selftest ;;
+  disk-on-nocode) cmd_disk_on_open ;;
   notify-maint) cmd_notify_maint "${2:-}" "${3:-}" ;;
   light) light_set "${2:-off}" "${3:-}" ;;
   rtc-set) cmd_rtc_set "${2:-}" "${3:-}" ;;
