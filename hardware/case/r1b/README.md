@@ -10,7 +10,7 @@ Outside 175.5 × 68.9 × 27 mm. r1b replaces r1 after r1 was printed and assembl
 |---|---|---|
 | `stl/purser-kasa-taban.stl` | tray | white PETG, floor down |
 | `stl/purser-kasa-kapak.stl` | shell | white PETG, top down (logo and light window first), no supports |
-| `stl/purser-anahtar-halkasi.stl` | switch ring | purple PETG, wide end down, skirt and brim |
+| `stl/purser-anahtar-halkasi.stl` | switch ring | purple PETG, wide end down, 100 % infill, skirt and brim |
 | `stl/purser-usb-tapasi.stl` | USB-A dust plug | purple PETG, head down, skirt and brim |
 
 `step/` has the same parts as STEP; `cad/kasa.py` makes all of them (CadQuery 2.x; `python3 kasa.py <out dir>`).
@@ -27,8 +27,9 @@ Outside 175.5 × 68.9 × 27 mm. r1b replaces r1 after r1 was printed and assembl
 - **USB-A plug.** r1's plug pressed into the case opening and pushed on the socket instead of closing it. r1b's plug is
   independent of the case: a plate goes into the USB-A socket itself (between the socket's tongue and its shell) and the
   socket's springs hold it. If it does not go in, turn it 180°.
-- **Switch ring.** No nut underneath any more: one straight 5.6 mm hole from the bottom up; the switch's metal bushing
-  thread (M6 × 0.75 or 1/4"-40) cuts its own thread into the PETG from the first turn.
+- **Switch ring.** No nut underneath; a modelled M6 × 0.75 internal thread runs the full 6 mm (minor Ø 5.35, major
+  Ø 6.30 for print clearance, 0.6 mm lead-in chamfer). Print it solid: 100 % infill, 4 walls. Made by `cad/halka.py`
+  (CadQuery body + manifold3d thread); `step/purser-anahtar-halkasi.step` is the thread-less body.
 - **Clock module.** The single far mounting pin moved to the other long edge, where the module's hole is.
 
 ## Light stick: stable colours
@@ -65,7 +66,7 @@ r1b, r1 tezgâhta basılıp kurulduktan sonra onun yerine geldi.
 |---|---|---|
 | `stl/purser-kasa-taban.stl` | taban | beyaz PETG, tabanı tablada |
 | `stl/purser-kasa-kapak.stl` | kapak | beyaz PETG, üst yüzü tablada (logo ve ışık penceresi ilk katmanlar), destek yok |
-| `stl/purser-anahtar-halkasi.stl` | anahtar halkası | mor PETG, geniş ucu tablada, skirt ve brim |
+| `stl/purser-anahtar-halkasi.stl` | anahtar halkası | mor PETG, geniş ucu tablada, %100 doluluk, skirt ve brim |
 | `stl/purser-usb-tapasi.stl` | USB-A toz tapası | mor PETG, başı tablada, skirt ve brim |
 
 `step/` aynı parçaların STEP hâli; `cad/kasa.py` hepsini üretir (CadQuery 2.x; `python3 kasa.py <çıktı klasörü>`).
@@ -82,8 +83,9 @@ r1b, r1 tezgâhta basılıp kurulduktan sonra onun yerine geldi.
 - **USB-A tapası.** r1'deki tapa kasanın açıklığına bastırıyor, soketi kapatmak yerine ona baskı yapıyordu. r1b'deki tapa
   kasadan bağımsız: bir plaka doğrudan USB-A soketinin içine (soketin dili ile gövdesi arasına) girer, soketin yayları
   tutar. Girmezse 180° çevir.
-- **Anahtar halkası.** Altta somun yok: alttan yukarı tek düz 5,6 mm delik; anahtarın metal boğazının dişi (M6 × 0,75 ya
-  da 1/4"-40) ilk turdan PETG'ye kendi dişini açar.
+- **Anahtar halkası.** Altta somun yok; 6 mm boyunca modelli M6 × 0,75 iç diş (baskı payıyla diş dibi Ø 5,35, diş
+  üstü Ø 6,30, altta 0,6 mm giriş pahı). Tam dolu basılır: %100 doluluk, 4 duvar. `cad/halka.py` üretir (CadQuery gövde +
+  manifold3d diş); `step/purser-anahtar-halkasi.step` dişsiz gövdedir.
 - **Saat modülü.** Tek kalan uzak pim, modülün deliğinin olduğu öbür uzun kenara alındı.
 
 ### Işık çubuğu: kararlı renkler
