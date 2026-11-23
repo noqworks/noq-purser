@@ -7,7 +7,7 @@
 | Part | Qty | Note |
 | --- | --- | --- |
 | Orange Pi Zero 3 | 1 | 1 GB of memory is enough. Wi-Fi is not used. |
-| 2.5" SATA SSD | 1 | At least twice the total size of your backups. We used 4 TB and took the board out of its case to save space. |
+| 2.5" SATA SSD | 1 | At least twice the total size of your backups. We took the board out of its case to save space. |
 | USB-SATA bridge board | 1 | The board inside an ordinary USB-SATA cable. The cable is cut and the wires are soldered straight to the board. |
 | microSD card | 1 | 8 GB or larger. |
 | 5 V 3 A USB-C power adapter | 1 | A computer's USB port is not enough; the disk draws a high current when it first starts. |

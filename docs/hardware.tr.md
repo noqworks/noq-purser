@@ -7,7 +7,7 @@
 | Parça | Adet | Not |
 | --- | --- | --- |
 | Orange Pi Zero 3 | 1 | 1 GB bellek yeter. Wi-Fi kullanılmaz. |
-| 2,5" SATA SSD | 1 | Yedeklerinin toplamından en az iki kat büyük. Biz 4 TB kullandık ve yer kazanmak için kartını kutusundan çıkardık. |
+| 2,5" SATA SSD | 1 | Yedeklerinin toplamından en az iki kat büyük. Yer kazanmak için kartını kutusundan çıkardık. |
 | USB-SATA köprü kartı | 1 | Sıradan bir USB-SATA kablosunun içindeki kart. Kablo kesilir, teller doğrudan karta lehimlenir. |
 | microSD kart | 1 | 8 GB ve üstü. |
 | 5 V 3 A USB-C adaptör | 1 | Bilgisayarın USB girişi yetmez; disk ilk dönüşte yüksek akım çeker. |

@@ -10,14 +10,14 @@
   that tonight's backup jobs finished, instead of waiting out its four hours.
 - **Read-back now reads the disk, and damaged copies heal.** A restore drill on the bench box (23 Nov, isolated container,
   generation mounted read-only) restored the database cleanly but found 7 borg segment files in the first generation with
-  holes: size and mtime right, about 1.2 GB never on the disk. The per-file check had hashed the page cache rsync had just
+  holes: size and mtime right, parts of them never on the disk. The per-file check had hashed the page cache rsync had just
   filled. Now: caches are dropped before the read-back so it reads the disk; every night files with holes are removed from
   staging so they are pulled again and read back (size and mtime alone made rsync skip them); a file with holes after the
   transfer fails the night.
 - **First fill reads the disk once.** The first generation is checked file by file against the list
   while it is written; the whole-disk scrub and the full hash scan that used to follow it are
   skipped, and the monthly scrub cycle starts from that night. On the bench box this would have
-  saved about 7.5 hours over USB 2.
+  saved hours over USB 2.
 - **The page lists published generations.** The core writes a `nesiller` state file
   (`<id> <gunluk|uzun> <bytes>`) after publish and retention, while the disk is open; the page reads
   it. Before, the list came from the transfer history, which skips the first generation and keeps
@@ -48,13 +48,13 @@
   işlerinin bittiğini günlükten okuyor, dört saat beklemiyor.
 - **Geri okuma artık diskten yapılıyor, bozuk kopyalar kendini onarıyor.** Tezgâhtaki kutuda geri yükleme tatbikatı
   (23 Kas, izole konteyner, nesil salt okuma bağlı) veritabanını sorunsuz geri yükledi ama ilk nesilde 7 borg segment
-  dosyasında delik buldu: boyut ve tarih doğru, yaklaşık 1,2 GB diske hiç yazılmamış. Dosya dosya denetim, rsync'in az önce
+  dosyasında delik buldu: boyut ve tarih doğru, bir kısmı diske hiç yazılmamış. Dosya dosya denetim, rsync'in az önce
   doldurduğu bellek önbelleğini okumuştu. Şimdi: geri okumadan önce önbellek boşaltılıyor, okuma diskten yapılıyor; her gece
   delikli dosyalar hazırlık alanından silinip yeniden çekiliyor ve geri okunuyor (yalnız boyut ve tarih yüzünden rsync onları
   atlıyordu); aktarımdan sonra delikli dosya kalırsa gece başarısız sayılıyor.
 - **İlk dolumda disk bir kez okunur.** İlk nesil yazılırken dosya dosya listeyle denetlenir; ardından
   gelen tam disk taraması (scrub) ve tam özet taraması yapılmaz, aylık tarama sayacı o geceden
-  başlar. Tezgâhtaki kutuda bu, USB 2 üzerinden yaklaşık 7,5 saat kazandırırdı.
+  başlar. USB 2 üzerinden bu saatler kazandırır.
 - **Sayfa yayımlanmış nesilleri gösterir.** Çekirdek, disk açıkken yayından ve saklama kuralından
   sonra `nesiller` durum dosyasını (`<kimlik> <gunluk|uzun> <bayt>`) yazar; sayfa onu okur. Önceden
   liste aktarım geçmişinden geliyordu; o geçmiş ilk nesli atlıyor, saklama kuralının sildiklerini
