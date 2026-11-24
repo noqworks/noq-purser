@@ -5,7 +5,7 @@
 A small box on the same network as your server, in another room or building, that takes the backups off it
 every night and keeps their history where the server cannot reach it.
 
-**Preview 1.0.0.** Being tested on the bench box. Download and step-by-step guide:
+**Version 1.1.1 · Verified** (restore drill passed). Download and step-by-step guide:
 <https://open.noq.works/projects/purser/>
 
 The box (an Orange Pi Zero 3, a bare USB-SATA bridge, a 2.5" SSD, an LED stick and a maintenance
@@ -17,12 +17,12 @@ tell it to delete anything.
 
 ## Install in four steps
 
-1. **Server** (Debian/Ubuntu with systemd): download `noq-purser-server-1.0.0.tar.gz`, then
+1. **Server** (Debian/Ubuntu with systemd): download `noq-purser-server-1.1.1.tar.gz`, then
    `sudo ./install.sh` and list your backup repositories in
    `/etc/purser/source.conf`.
 2. **Computer** (macOS or Linux): run the card tool, in Terminal
    `bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)`
-   or from `noq-purser-setup-1.0.0.tar.gz` (on a Mac, double-click `purser-setup.command`). It
+   or from `noq-purser-setup-1.1.1.tar.gz` (on a Mac, double-click `purser-setup.command`). It
    downloads the box image and checks it, lists the SD cards, asks a few questions, writes the card
    and shows the 12-digit operation code and the disk recovery passphrase **once**: write them on paper.
 3. **Box**: card, disk, Ethernet, power. The first boot prepares the disk (cyan); a dot at each end

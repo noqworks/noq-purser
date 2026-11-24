@@ -5,7 +5,7 @@
 Sunucuyla aynı ağda, başka bir odada ya da binada duran küçük bir kutu: yedekleri her gece sunucudan alır ve
 geçmişlerini sunucunun ulaşamayacağı yerde saklar.
 
-**Önizleme 1.0.0.** Tezgâhtaki kutuda sınanıyor. İndirme ve adım adım rehber:
+**Sürüm 1.1.1 · Doğrulandı** (geri yükleme tatbikatı geçti). İndirme ve adım adım rehber:
 <https://open.noq.works/tr/projeler/purser/>
 
 Kutu (Orange Pi Zero 3, çıplak USB-SATA köprüsü, 2,5" SSD, LED çubuğu ve bakım anahtarı) anahtar
@@ -16,12 +16,12 @@ takvimiyle siler; sunucu kutuya ulaşamaz, ona silme diyemez.
 
 ## Dört adımda kurulum
 
-1. **Sunucu** (systemd'li Debian/Ubuntu): `noq-purser-server-1.0.0.tar.gz` dosyasını indir,
+1. **Sunucu** (systemd'li Debian/Ubuntu): `noq-purser-server-1.1.1.tar.gz` dosyasını indir,
    `sudo ./install.sh` çalıştır, yedek depolarını
    `/etc/purser/source.conf` dosyasına yaz.
 2. **Bilgisayar** (macOS ya da Linux): kart aracını çalıştır; Terminal'de
    `bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)`
-   ya da `noq-purser-setup-1.0.0.tar.gz` içinden (Mac'te `purser-setup.command` dosyasına çift tıkla).
+   ya da `noq-purser-setup-1.1.1.tar.gz` içinden (Mac'te `purser-setup.command` dosyasına çift tıkla).
    Araç kutu imajını indirip denetler, SD kartları listeler, birkaç soru sorar, kartı yazar ve 12
    haneli işlem kodunu ve disk kurtarma parolasını **bir kez** gösterir: kâğıda yaz.
 3. **Kutu**: kart, disk, Ethernet, güç. İlk açılış diski hazırlar (camgöbeği); çubuğun iki ucunda

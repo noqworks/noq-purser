@@ -2,7 +2,7 @@
 
 [English](install.md)
 
-Önizleme 1.0.0. İndirmeler: <https://open.noq.works/tr/projeler/purser/#indir> (GitHub sürümünde de
+Sürüm 1.1.1. İndirmeler: <https://open.noq.works/tr/projeler/purser/#indir> (GitHub sürümünde de
 var). Her dosya SHA-256 değeriyle `SHA256SUMS` içinde.
 
 ## Özet
@@ -20,7 +20,7 @@ var). Her dosya SHA-256 değeriyle `SHA256SUMS` içinde.
 systemd'li Debian 12/13 ya da Ubuntu 24.04+.
 
 ```
-tar xzf noq-purser-server-1.0.0.tar.gz && cd noq-purser-server-1.0.0
+tar xzf noq-purser-server-1.1.1.tar.gz && cd noq-purser-server-1.1.1
 sudo ./install.sh                              # yerel ağ adresini bulur; seçmek için --listen <ip>
 sudo nano /etc/purser/source.conf               # SOURCES=("pgbackrest:/var/lib/pgbackrest" "borg:/srv/borg" ...)
 sudo purser status
@@ -41,7 +41,7 @@ macOS ya da Linux. Terminal'de:
 bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)
 ```
 
-ya da `noq-purser-setup-1.0.0.tar.gz` dosyasını aç ve `bash purser-setup` çalıştır (Mac'te
+ya da `noq-purser-setup-1.1.1.tar.gz` dosyasını aç ve `bash purser-setup` çalıştır (Mac'te
 `purser-setup.command` dosyasına çift tıklanabilir; ilk kez sağ tık > Aç, imzalı bir uygulama
 değil, bir betik).
 

@@ -2,7 +2,7 @@
 
 [Türkçe](install.tr.md)
 
-Preview 1.0.0. Downloads: <https://open.noq.works/projects/purser/#download> (also on the GitHub
+Version 1.1.1. Downloads: <https://open.noq.works/projects/purser/#download> (also on the GitHub
 release). Every file is listed with its SHA-256 in `SHA256SUMS`.
 
 ## Overview
@@ -20,7 +20,7 @@ release). Every file is listed with its SHA-256 in `SHA256SUMS`.
 Debian 12/13 or Ubuntu 24.04+ with systemd.
 
 ```
-tar xzf noq-purser-server-1.0.0.tar.gz && cd noq-purser-server-1.0.0
+tar xzf noq-purser-server-1.1.1.tar.gz && cd noq-purser-server-1.1.1
 sudo ./install.sh                              # finds its LAN address; --listen <ip> to choose
 sudo nano /etc/purser/source.conf               # SOURCES=("pgbackrest:/var/lib/pgbackrest" "borg:/srv/borg" ...)
 sudo purser status
@@ -40,7 +40,7 @@ macOS or Linux. In Terminal:
 bash <(curl -fsSL https://open.noq.works/files/purser/purser-setup)
 ```
 
-or unpack `noq-purser-setup-1.0.0.tar.gz` and run `bash purser-setup` (on a Mac you can double-click
+or unpack `noq-purser-setup-1.1.1.tar.gz` and run `bash purser-setup` (on a Mac you can double-click
 `purser-setup.command`; the first time right-click > Open, it is a script, not a signed app).
 
 The tool downloads the image from open.noq.works into your cache and checks its SHA-256, lists the
