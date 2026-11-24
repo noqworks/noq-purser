@@ -6,7 +6,7 @@ A backup whose restore has never been tried is not a backup. Do a drill every th
 after every change to the sources.
 
 **Status of this release:** the restore steps below follow from the on-disk format and the tools'
-own documentation. A full restore drill with this release has **not been done yet**.
+own documentation and were drilled on our own box on 24 Nov 2026: PostgreSQL (pgBackRest) and borg opened.
 
 You need: the disk, a clean Linux machine that has no access to the protected server (a laptop or
 a VM with the network off), the paper pack (disk recovery passphrase, the tools' passphrases and

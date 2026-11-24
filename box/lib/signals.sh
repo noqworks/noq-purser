@@ -22,6 +22,18 @@ list_diff() {   # list_diff <prev list|/dev/null> <new list> <work dir>
   local f; for f in changed added deleted; do LC_ALL=C sort -o "$w/$f" "$w/$f"; done
 }
 
+# Changed borg segments that were committed in the previous copy. Segments numbered after the
+# previous copy's last commit (index.N) belonged to an interrupted transaction: borg rolls them
+# back and writes the same numbers again, which is not tampering (seen on the bench box, Nov 2026).
+# Without an index.N in the previous copy every changed segment counts.
+borg_committed() {   # borg_committed <dir> <prev path<TAB>hash file> <changed paths>
+  local m
+  m=$(awk -F'\t' -v d="$1/index." 'index($1, d) == 1 { n = substr($1, length(d) + 1)
+        if (n ~ /^[0-9]+$/ && n + 0 > m) m = n + 0 } END { print m + 0 }' "$2")
+  awk -v d="$1/data/" -v m="$m" 'index($0, d) != 1 { next }
+        { n = $0; sub(/.*\//, "", n); if (m == 0 || n !~ /^[0-9]+$/ || n + 0 <= m) print }' "$3"
+}
+
 under() { awk -v d="$1/" 'index($0, d) == 1' "$2"; }        # paths below a source dir
 count() { awk 'END { print NR }' "$1"; }
 has() { grep -Eq -- "$1" "$2"; }                            # grep: mawk lacks {n} intervals
@@ -44,7 +56,8 @@ signals() {   # signals <prev list|/dev/null> <new list> <id> <bytes> <work dir>
     case $type in
       pgbackrest) signals_pgbackrest "$q" "$dir" "$days" "$dow" "$w" "$new" "$id" ;;
       borg)
-        has "^$q/data/" "$w/k.changed" && SUSPECT+=("borg_segment_changed/$dir")
+        borg_committed "$dir" "$w/prev.ph" "$w/k.changed" > "$w/k.changed.committed"
+        has "^$q/data/" "$w/k.changed.committed" && SUSPECT+=("borg_segment_changed/$dir")
         if has "^$q/data/" "$w/k.deleted" && ! prune_allowed "$days" "$dow"; then SUSPECT+=("borg_delete_offday/$dir"); fi ;;
       restic)
         has "^$q/(data|index|snapshots|keys)/" "$w/k.changed" && SUSPECT+=("restic_object_changed/$dir")

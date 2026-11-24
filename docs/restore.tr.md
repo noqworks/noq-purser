@@ -6,7 +6,7 @@ Geri yüklemesi hiç denenmemiş yedek, yedek değildir. Üç ayda bir ve kaynak
 sonra tatbikat yapın.
 
 **Bu sürümün durumu:** aşağıdaki adımlar diskteki biçimden ve araçların kendi belgelerinden
-çıkar. Bu sürümle tam bir geri yükleme tatbikatı **henüz yapılmadı**.
+çıkar ve 24 Kas 2026'da kendi kutumuzda tatbik edildi: PostgreSQL (pgBackRest) ve borg geri açıldı.
 
 Gerekenler: disk, korunan sunucuya erişimi olmayan temiz bir Linux makine (ağı kapalı bir
 dizüstü ya da sanal makine), kâğıt paket (disk kurtarma parolası, araçların parolaları ve

@@ -21,6 +21,11 @@ sandbox() {   # sandbox <user> <writable path|-> <seconds> <net|nonet> -- comman
            -p SystemCallFilter=@system-service -p SystemCallErrorNumber=EPERM -p RuntimeMaxSec="$t"
            -p LimitFSIZE="$MAX_FILE_SIZE" -p InaccessiblePaths="-$SECRETS -$STATE")
   [ "$rw" != - ] && p+=(-p ReadWritePaths="$rw")
+  # Stopping the calling service stops its sandboxes too. Before, a stopped purser.service left the
+  # read-back unit running, and the disk could not be locked (disk_not_closed).
+  local owner
+  owner=$(sed -n 's|^0::.*/\([^/]*\.service\)$|\1|p' /proc/self/cgroup 2>/dev/null | head -1)
+  [ -n "$owner" ] && p+=(-p PartOf="$owner")
   if [ "$net" = net ]; then
     p+=(-p RestrictAddressFamilies="AF_INET AF_INET6 AF_UNIX")
   else

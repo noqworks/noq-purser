@@ -70,12 +70,15 @@ The full list is in [docs/threat-model.md](docs/threat-model.md).
 
 ## Status
 
-Preview 1.0.0. The test suite runs without hardware (`tests/run.sh`): unit, end-to-end night with a
-real gate and a real btrfs, attack scenarios, compatibility with disks and SD cards written by
-the prototype; image tools (`tests/run.sh --image-tools`).
+1.1.1, verified on our own box. The test suite runs without hardware (`tests/run.sh`): unit,
+end-to-end night with a real gate and a real btrfs, attack scenarios, compatibility with disks and
+SD cards written by the prototype; image tools (`tests/run.sh --image-tools`).
 
-**A restore drill with this release has not been done yet.** Until it has, treat NOQ Purser as
-untested for restores. A backup whose restore has never been tried is not a backup.
+**Restore drill passed (24 Nov 2026).** A generation taken by the box was opened read-only and
+restored in an isolated container with no network: PostgreSQL (pgBackRest) restored, recovered and
+opened writable; the last borg archive opened and the extracted files were identical to the live
+system. Run your own drill every three months and after every change to your sources: a backup
+whose restore has never been tried is not a backup.
 
 ## Documents
 

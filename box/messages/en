@@ -9,6 +9,7 @@ N_LIST_REJECTED|The server's list for %s breaks the format (%s); generation not 
 N_TREE_TYPE|Something other than a file or directory arrived in %s; generation not taken. Disk locked.
 N_TREE_MISMATCH|The tree of %s does not match its list; not published. Disk locked.
 N_VERIFY_FAILED|Read-back verification of %s failed; not published. Disk locked.
+N_READBACK_PARTIAL|The read-back of %s did not fit in the window; what was read is kept and it resumes there next night. Disk locked.
 N_NO_TIME|No time left in the window for %s; it continues next night. Disk locked.
 N_PARTIAL|%s minutes passed and the transfer is not complete; the rest follows next night. Disk locked.
 N_DISK_DROPPED|The disk dropped off USB during the transfer; the transfer is incomplete and the rest follows on the next run. Check the bridge's USB wires and power.

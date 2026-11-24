@@ -9,6 +9,7 @@ N_LIST_REJECTED|Sunucunun %s listesinde kurala uymayan satır var (%s); bu nesli
 N_TREE_TYPE|%s neslinde dosya ya da dizin olmayan bir şey geldi; nesli almadım. Diski kilitledim.
 N_TREE_MISMATCH|%s neslinin ağacı listeyle tutmuyor; yayımlamadım. Diski kilitledim.
 N_VERIFY_FAILED|%s neslinin geri okuma doğrulaması tutmadı; yayımlamadım. Diski kilitledim.
+N_READBACK_PARTIAL|%s neslinin geri okuması pencereye sığmadı; okunanlar saklandı, sonraki gece kaldığı yerden sürer. Diski kilitledim.
 N_NO_TIME|Pencerede %s için süre kalmadı; sonraki gece sürer. Diski kilitledim.
 N_PARTIAL|%s dakika doldu, aktarım bitmedi; kalanını sonraki gece alırım. Diski kilitledim.
 N_DISK_DROPPED|Disk aktarım sırasında USB'den düştü; aktarım yarım kaldı, kalanını sonraki çalıştırmada alırım. Köprünün USB tellerini ve beslemesini denetle.

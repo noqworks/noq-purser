@@ -69,12 +69,15 @@ Tam liste: [docs/threat-model.tr.md](docs/threat-model.tr.md).
 
 ## Durum
 
-Önizleme 1.0.0. Test takımı donanımsız çalışır (`tests/run.sh`): birim, gerçek kapı ve gerçek btrfs
-ile uçtan uca gece, saldırı senaryoları, ilk örneğin yazdığı disk ve kartlarla uyumluluk; imaj
-araçları (`tests/run.sh --image-tools`).
+1.1.1, kendi kutumuzda doğrulandı. Test takımı donanımsız çalışır (`tests/run.sh`): birim, gerçek kapı
+ve gerçek btrfs ile uçtan uca gece, saldırı senaryoları, ilk örneğin yazdığı disk ve kartlarla
+uyumluluk; imaj araçları (`tests/run.sh --image-tools`).
 
-**Bu sürümle henüz geri yükleme tatbikatı yapılmadı.** Yapılana kadar NOQ Purser'ı geri yükleme
-açısından sınanmamış say. Geri yüklemesi hiç denenmemiş yedek, yedek değildir.
+**Geri yükleme tatbikatı geçti (24 Kas 2026).** Kutunun aldığı bir nesil salt okunur açılıp ağsız,
+izole bir konteynerde geri yüklendi: PostgreSQL (pgBackRest) geri yüklendi, kurtarmayı tamamlayıp
+yazılabilir açıldı; son borg arşivi açıldı, çıkarılan dosyalar canlı sistemle birebir aynıydı. Kendi
+tatbikatını üç ayda bir ve kaynaklarda her değişiklikten sonra yap: geri yüklemesi hiç denenmemiş
+yedek, yedek değildir.
 
 ## Belgeler
 

@@ -135,7 +135,7 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
   light_set checking
   if ! r=$(verify tree "$STAGING" "$w/list"); then
     if [ "$r" = TREE_TYPE ]; then
-      btrfs -q subvolume delete "$STAGING" || true
+      btrfs -q subvolume delete "$STAGING" || true; rm -f "$ST_READBACK"
       abort_window rejected_tree "$id" N_TREE_TYPE "$id"
     else
       abort_window tree_mismatch "$id" N_TREE_MISMATCH "$id"
@@ -152,13 +152,30 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
 
   t=$(budget_left "$start" 300)
   [ "$t" -gt 60 ] || { abort_window partial "$id" N_NO_TIME "$id"; return 1; }
+  # The read-back resumes across windows: a file read back in an earlier window and not touched
+  # since (same ctime and size) keeps its hash. Before, a read-back set larger than one window
+  # (a big first difference over USB 2) ran out of time every night and never finished.
+  readback_split "$w"
+  log "read-back: $(count "$w/cached") file(s) already read back in an earlier window, $(count "$w/todo") to read"
+  local todo=$w/todo cut=0 rc=0 hs hb
+  if [ "${PURSER_FAULT:-}" = readback_cut ]; then   # test: the window ends halfway through the read-back
+    head -n $(( ( $(count "$w/todo") + 1 ) / 2 )) "$w/todo" > "$w/todo.cut"; todo=$w/todo.cut; cut=1
+  fi
   # read back from the disk, not from memory: without this the hash reads the page cache rsync just
   # filled, and data that never reached the disk still verifies (seen on the bench box, Nov 2026)
   sync; { echo 3 > /proc/sys/vm/drop_caches; } 2>/dev/null || true
-  if ! VERIFY_TIMEOUT=$t verify hash "$STAGING" < "$w/verify" > "$w/actual"; then
+  hs=$(now)
+  VERIFY_TIMEOUT=$t verify hash "$STAGING" < "$todo" > "$w/hashed" || rc=$?
+  readback_save "$w"
+  if [ "$rc" -ne 0 ] || [ "$cut" = 1 ]; then
+    if [ "$cut" = 1 ] || [ $(( $(now) - hs )) -ge $(( t - 15 )) ]; then
+      abort_window partial "$id" N_READBACK_PARTIAL "$id"; return 1
+    fi
     abort_window verify_failed "$id" N_VERIFY_FAILED "$id"; return 1
   fi
-  BYTES=$(sed -n 's/^#bytes //p' "$w/actual"); BYTES=${BYTES:-0}
+  hb=$(sed -n 's/^#bytes //p' "$w/hashed"); hb=$(LC_ALL=C printf %.0f "${hb:-0}" 2>/dev/null) || hb=0   # may be 7.05e+11
+  BYTES=$(( hb + $(cat "$w/cached.bytes") ))
+  { grep -v '^#' "$w/hashed" || true; cat "$w/cached"; echo "#bytes $BYTES"; } > "$w/actual"
   hash_compare "$w"
 
   # list hash changed but the file was not transferred (size and mtime kept): pull it again
@@ -193,6 +210,35 @@ transfer_and_verify() {   # <id> <last published> <work dir> <start>
        /^# / { print; next }
        { p = substr($0, 67); if (p in lie) print a[p] "  " p; else print }' "$w/actual" "$w/list" > "$w/stored.list"
   publish "$id" "$w" "$start"
+}
+
+# Read-back progress kept across windows, one line per file of the staging area read back in an
+# earlier window: "<ctime> <size> <sha256> <path>". A line counts only while the file's ctime and
+# size are unchanged: any write by the transfer moves the ctime, and the rsync user cannot set it
+# back. Paths have no spaces (the list check allows [A-Za-z0-9._/+-] only).
+readback_split() {   # <work dir>: verify -> todo (paths to read), cached (sha256sum lines), cached.bytes
+  local w=$1
+  ( cd "$STAGING" && find -P . -xdev -type f -printf '%C@ %s %P\n' ) > "$w/stat"
+  touch "$ST_READBACK"
+  awk -v st="$w/stat" -v rb="$ST_READBACK" -v todo="$w/todo" -v cached="$w/cached" -v cb="$w/cached.bytes" '
+    BEGIN { while ((getline l < st) > 0) { split(l, f, " "); c[f[3]] = f[1]; s[f[3]] = f[2] }
+            while ((getline l < rb) > 0) { if (split(l, f, " ") == 4) { rc[f[4]] = f[1]; rs[f[4]] = f[2]; rh[f[4]] = f[3] } }
+            printf "" > todo; printf "" > cached; b = 0 }
+    { p = $0
+      if ((p in rh) && (p in c) && rc[p] == c[p] && rs[p] == s[p]) { print rh[p] "  " p > cached; b += s[p] }
+      else print p > todo }
+    END { printf "%.0f\n", b > cb }' "$w/verify"
+}
+
+readback_save() {   # <work dir>: adds the files read back tonight (complete lines only) to the kept progress
+  local w=$1
+  awk -v st="$w/stat" '
+    BEGIN { while ((getline l < st) > 0) { split(l, f, " "); c[f[3]] = f[1]; s[f[3]] = f[2] } }
+    FILENAME == ARGV[1] { if (split($0, f, " ") == 4) keep[f[4]] = $0; next }
+    length($0) > 66 && substr($0, 65, 2) == "  " && substr($0, 1, 64) !~ /[^0-9a-f]/ {
+      p = substr($0, 67); if (p in c) keep[p] = c[p] " " s[p] " " substr($0, 1, 64) " " p }
+    END { for (p in keep) print keep[p] }' "$ST_READBACK" "$w/hashed" > "$ST_READBACK.new"
+  mv -f "$ST_READBACK.new" "$ST_READBACK"
 }
 
 # actual vs. list for the read-back set: lied = list claims "unchanged" but the content was
@@ -237,6 +283,7 @@ publish() {   # <id> <work dir> <start>
   [ "${PURSER_FAULT:-}" = after_snapshot ] && { log "fault injection: stopping after the snapshot"; exit 99; }
   publish_recover "$id"
   btrfs -q subvolume delete "$STAGING"
+  rm -f "$ST_READBACK"
 }
 
 publish_recover() {   # finish renaming the audit files of a published generation

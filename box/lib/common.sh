@@ -8,7 +8,7 @@
 
 CONF=${PURSER_CONF:-/etc/purser/purser.conf}
 # shellcheck disable=SC2034
-PURSER_VERSION=1.1.0
+PURSER_VERSION=1.1.1
 
 load_config() {
   if [ -r "$CONF" ]; then
@@ -65,6 +65,7 @@ frozen_names() {
   ST_STALE_PREFIX=$STATE/bayat-             # bayat-<source dir>: nights without change
   ST_MARK=$STATE/t0
   ST_VERIFY_SET=$STATE/dogrula
+  ST_READBACK=$STATE/geri-okuma           # "<ctime> <size> <sha256> <path>": read back in an earlier window
   ST_LATE_SENT=$STATE/gecikme-bildirildi
   ST_TIMER_OFF_SENT=$STATE/kapali-bildirildi
   # --- SD card, added in 1.0 ---

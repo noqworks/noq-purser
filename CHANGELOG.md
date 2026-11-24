@@ -1,5 +1,54 @@
 # Changelog / Değişiklikler
 
+## 1.1.1 — 2026-11-24
+
+### English
+
+- **The read-back resumes across nights.** A read-back set larger than one window (a big first difference over
+  USB 2) ran out of time every night, started again from the beginning the next night and never finished, so the
+  generation was never published. Files read back are now kept on the box (`geri-okuma`: ctime, size, hash, path);
+  the next window reads only files not read yet or touched since (another ctime or size). The transfer cannot hide a
+  write: any write moves the ctime and the rsync user cannot set it back. When the window ends during the read-back
+  the night is `partial` with its own message, not `verify_failed`; the kept progress is cleared when the generation
+  is published or the staging area is discarded.
+- **Stopping the service stops its sandboxes.** Every transient sandbox unit is now `PartOf=` the service that
+  started it. Before, stopping `purser.service` left the read-back unit (`run-uNNN`) running and the disk could not
+  be locked (`disk_not_closed`).
+- **No false alarm after an interrupted borg run.** A borg segment numbered after the previous copy's last commit
+  (`index.N`) belonged to an interrupted transaction; borg rolls it back and writes the same number again. Such a
+  segment no longer makes the night suspect; a changed committed segment still does. Seen on the bench box: the
+  previous copy was taken while a borg run was cut, and the next night was flagged for one rewritten segment.
+- **Restore drill passed.** A generation taken by the bench box was opened read-only and restored in an isolated
+  container with no network: PostgreSQL (pgBackRest) restored, recovered and opened writable; the last borg archive
+  opened and the extracted files matched the live system byte for byte.
+- The page calls the last sound generation by its name ("Last sound generation", not "Last night").
+- Tests: a read-back cut halfway and resumed the next night; a sandbox stopped together with its service; borg
+  segments before and after the last commit.
+
+### Türkçe
+
+- **Geri okuma geceler arasında kaldığı yerden sürüyor.** Bir pencereye sığmayan geri okuma kümesi (USB 2 üzerinden
+  büyük bir ilk fark) her gece süre dolunca kesiliyor, ertesi gece baştan başlıyor ve hiç bitmiyordu; nesil
+  yayımlanmıyordu. Geri okunan dosyalar artık kutuda tutuluyor (`geri-okuma`: ctime, boyut, özet, yol); sonraki pencere
+  yalnız henüz okunmamış ya da o zamandan beri dokunulmuş (ctime ya da boyutu değişmiş) dosyaları okuyor. Aktarım bir
+  yazmayı gizleyemez: her yazma ctime'ı ileri alır, rsync kullanıcısı onu geri alamaz. Pencere geri okuma sırasında
+  biterse gece `verify_failed` değil kendi iletisiyle `partial` sayılıyor; tutulan ilerleme nesil yayımlanınca ya da
+  hazırlık alanı atılınca siliniyor.
+- **Servis durunca sanal alanları da duruyor.** Her geçici sanal alan birimi artık onu başlatan servise `PartOf=` ile
+  bağlı. Önceden `purser.service` durdurulunca geri okuma birimi (`run-uNNN`) çalışmaya devam ediyor, disk
+  kilitlenemiyordu (`disk_not_closed`).
+- **Yarıda kalan borg çalışmasından sonra yanlış alarm yok.** Önceki kopyanın son kaydından (`index.N`) sonra
+  numaralanan borg segmenti yarıda kalmış bir işleme aitti; borg onu geri alır ve aynı numarayla yeniden yazar. Böyle
+  bir segment artık geceyi şüpheli yapmıyor; kaydedilmiş bir segmentin değişmesi yine yapıyor. Tezgâhtaki kutuda
+  görüldü: önceki kopya bir borg çalışması kesilmişken alınmıştı, sonraki gece yeniden yazılan tek segment yüzünden
+  işaretlendi.
+- **Geri yükleme tatbikatı geçti.** Tezgâhtaki kutunun aldığı bir nesil salt okunur açılıp ağsız, izole bir
+  konteynerde geri yüklendi: PostgreSQL (pgBackRest) geri yüklendi, kurtarmayı tamamlayıp yazılabilir açıldı; son borg
+  arşivi açıldı, çıkarılan dosyalar canlı sistemle bayt bayt aynıydı.
+- Sayfa son sağlam nesli kendi adıyla gösteriyor ("Son gece" değil "Son sağlam nesil").
+- Sınamalar: yarıda kesilip ertesi gece süren geri okuma; servisiyle birlikte duran sanal alan; son kayıttan önceki ve
+  sonraki borg segmentleri.
+
 ## 1.1.0 — 2026-11-23
 
 ### English

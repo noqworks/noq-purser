@@ -350,7 +350,7 @@ const $=id=>document.getElementById(id);
 const DIL=(document.documentElement.dataset.dil||new URLSearchParams(location.search).get("dil")||navigator.language||"en").toLowerCase().startsWith("tr")?"tr":"en";
 const METIN={
  tr:{bakimKapali:"Bakım kapalı",bakimAcik:"Bakım açık",anahtarYok:"Anahtar okunamadı",okunuyor:"Okunuyor",okunuyorMetin:"Kutu durumu okunuyor.",
-  kutu:"Kutu",saat:"Saat",saatAyar:"Saati telefondan ayarla",saatKaynak:{ntp:"Ağ saati",rtc:"Pil saati",none:"Güvenilmez"},sonGece:"Son gece",disk:"Disk",kart:"Kart",baglanti:"Bağlantı",acikKalma:"Açık kalma",nesiller:"Nesiller",
+  kutu:"Kutu",saat:"Saat",saatAyar:"Saati telefondan ayarla",saatKaynak:{ntp:"Ağ saati",rtc:"Pil saati",none:"Güvenilmez"},sonGece:"Son sağlam nesil",disk:"Disk",kart:"Kart",baglanti:"Bağlantı",acikKalma:"Açık kalma",nesiller:"Nesiller",
   nesilYok:"Henüz nesil yok. İlk yedek, eşleşmeden sonraki gece çekilir.",islemler:"İşlemler",calistir:"Şimdi çalıştır",diskAc:"Diski aç (30 dk)",ozSinama:"Öz sınama",
   eslesme:"Sunucuyla eşleş",kapat:"Düzgün kapat",islemNot:"Her işlem kâğıttaki 12 haneli işlem kodunu ister. Üç yanlış denemeden sonra kod bir süre kilitlenir.",
   isikAnlami:"Işığın anlamı",seritEtiket:"Işık durumları; yana kaydır",yedekYok:"Henüz yedek yok",diskYok:"Disk görünmüyor",diskDenetle:"Diski denetle",diskYokDurum:["Disk takılı değil","Disk USB'de görünmüyor; gece işi çalışamaz. Bağlayıp kutuyu kapatıp aç."],modelYok:"model okunamıyor",
@@ -369,7 +369,7 @@ const METIN={
   denetimNot:"Çekme bitti; kutu çektiği yedeği denetliyor.",grafikSol:"2 dk önce",grafikSag:"şimdi",tepe:"en yüksek %s",alinan:"Alınan",gecen:"Geçen süre",
   alinanGorulen:"İşin başında ölçülmedi; alınan, bu sayfanın ilk gördüğü değerden (%s) bu yana sayılıyor.",olcum:"%s ölçümü"},
  en:{bakimKapali:"Maintenance off",bakimAcik:"Maintenance on",anahtarYok:"Switch unreadable",okunuyor:"Reading",okunuyorMetin:"Reading the box status.",
-  kutu:"Box",saat:"Clock",saatAyar:"Set the clock from this phone",saatKaynak:{ntp:"Network time",rtc:"Battery clock",none:"Not trusted"},sonGece:"Last night",disk:"Disk",kart:"Board",baglanti:"Link",acikKalma:"Uptime",nesiller:"Generations",
+  kutu:"Box",saat:"Clock",saatAyar:"Set the clock from this phone",saatKaynak:{ntp:"Network time",rtc:"Battery clock",none:"Not trusted"},sonGece:"Last sound generation",disk:"Disk",kart:"Board",baglanti:"Link",acikKalma:"Uptime",nesiller:"Generations",
   nesilYok:"No generations yet. The first backup is pulled the night after pairing.",islemler:"Actions",calistir:"Run now",diskAc:"Open the disk (30 min)",ozSinama:"Self-test",
   eslesme:"Pair with server",kapat:"Shut down cleanly",islemNot:"Every action asks for the 12-digit operation code on your paper. After three wrong tries the code locks for a while.",
   isikAnlami:"What the light means",seritEtiket:"Light states; scroll sideways",yedekYok:"No backup yet",diskYok:"No disk detected",diskDenetle:"Check the disk",diskYokDurum:["No disk","The disk is not on USB; the nightly job cannot run. Connect it, then restart the box."],modelYok:"model unreadable",
